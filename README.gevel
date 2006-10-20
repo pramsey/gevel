@@ -1,15 +1,96 @@
-for 8.1+ postgresql
+Gevel contrib module provides several functions useful for analyzing GiST index.
 
-select gist_tree(INDEXNAME);
-select gist_tree(INDEXNAME,MAXLEVEL);
-select gist_stat(INDEXNAME);
+[Online version] of this document (http://www.sai.msu.su/~megera/oddmuse/index.cgi/Gevel)
 
+Caution: This module was designed for developers of GiST based indices !
 
-example from gmake installcheck on rtree_gist:
-select * from gist_print('pix') as t(level int, valid bool, a box);
+Authors
 
-# select * from gist_print('pix') as t(level int, valid bool, a box) where level < 2;
- level | valid |              a              
+    * Oleg Bartunov <oleg@sai.msu.su>, Moscow, Moscow University, Russia
+    * Teodor Sigaev <teodor@sigaev.ru>, Moscow, Delta-Soft Ltd.,Russia
+
+License
+
+Stable version, included into PostgreSQL distribution, released under 
+BSD license. Development version, available from this site, released under 
+the GNU General Public License, version 2 (June 1991)
+
+Install gevel module (requires 8.1+ version):
+% cd PGSQLSRC/contrib
+% tar xzvf gevel.tar.gz
+% make
+% make install
+% make installcheck
+% psql regression < gevel.sql
+
+    * gist_stat(INDEXNAME) - show some statistics about GiST tree 
+
+regression=# select gist_stat('pix');
+ Number of levels:          2
+Number of pages:           30
+Number of leaf pages:      29
+Number of tuples:          3129
+Number of leaf tuples:     3100
+Total size of tuples:      137676 bytes
+Total size of leaf tuples: 136400 bytes
+Total size of index:       245760 bytes
+
+    * gist_tree(INDEXNAME[,MAXLEVEL]) - show GiST tree up to MAXLEVEL 
+
+regression=# select gist_tree('pix',0);
+ 0(l:0) blk: 0 numTuple: 29 free: 6888b(15.63%)
+
+Designation (from left to right):
+
+          o 0 - page number
+          o (l:0) - tree level
+          o blk: 0 - block number
+          o numTuple: 29 - the number of tuples
+          o free: 6888b - free space in bytes
+          o (15.63%) - occupied space in percents
+
+    * gist_tree(INDEXNAME) - show full GiST tree 
+
+regression=# select gist_tree('pix');
+ 0(l:0) blk: 0 numTuple: 29 free: 6888b(15.63%)
+    1(l:1) blk: 13 numTuple: 180 free: 244b(97.01%)
+    2(l:1) blk: 11 numTuple: 175 free: 464b(94.32%)
+    3(l:1) blk: 2 numTuple: 101 free: 3720b(54.43%)
+    4(l:1) blk: 17 numTuple: 111 free: 3280b(59.82%)
+    5(l:1) blk: 18 numTuple: 101 free: 3720b(54.43%)
+    6(l:1) blk: 10 numTuple: 98 free: 3852b(52.82%)
+    7(l:1) blk: 19 numTuple: 111 free: 3280b(59.82%)
+    8(l:1) blk: 9 numTuple: 97 free: 3896b(52.28%)
+    9(l:1) blk: 20 numTuple: 104 free: 3588b(56.05%)
+    10(l:1) blk: 14 numTuple: 96 free: 3940b(51.74%)
+    11(l:1) blk: 21 numTuple: 106 free: 3500b(57.13%)
+    12(l:1) blk: 7 numTuple: 103 free: 3632b(55.51%)
+    13(l:1) blk: 1 numTuple: 101 free: 3720b(54.43%)
+    14(l:1) blk: 16 numTuple: 97 free: 3896b(52.28%)
+    15(l:1) blk: 24 numTuple: 103 free: 3632b(55.51%)
+    16(l:1) blk: 4 numTuple: 98 free: 3852b(52.82%)
+    17(l:1) blk: 25 numTuple: 98 free: 3852b(52.82%)
+    18(l:1) blk: 3 numTuple: 97 free: 3896b(52.28%)
+    19(l:1) blk: 26 numTuple: 96 free: 3940b(51.74%)
+    20(l:1) blk: 6 numTuple: 103 free: 3632b(55.51%)
+    21(l:1) blk: 8 numTuple: 162 free: 1036b(87.31%)
+    22(l:1) blk: 23 numTuple: 94 free: 4028b(50.66%)
+    23(l:1) blk: 12 numTuple: 82 free: 4556b(44.19%)
+    24(l:1) blk: 27 numTuple: 105 free: 3544b(56.59%)
+    25(l:1) blk: 5 numTuple: 90 free: 4204b(48.51%)
+    26(l:1) blk: 28 numTuple: 100 free: 3764b(53.90%)
+    27(l:1) blk: 22 numTuple: 101 free: 3720b(54.43%)
+    28(l:1) blk: 15 numTuple: 95 free: 3984b(51.20%)
+    29(l:1) blk: 29 numTuple: 95 free: 3984b(51.20%)
+
+    * gist_print(INDEXNAME) - prints objects stored in GiST tree, 
+     works only if objects in index have textual representation 
+     (type_out functions should be implemented for given object type). 
+     It's known to work with R-tree GiST based index. 
+     Note, in example below, objects are of type box. 
+
+# select * from gist_print('pix') as t(level int, valid bool, a box) where level =1;
+ level | valid |              a
 -------+-------+-----------------------------
      1 | t     | (37357,50073),(34242,357)
      1 | t     | (43499,49770),(40358,43)
@@ -41,5 +122,3 @@ select * from gist_print('pix') as t(level int, valid bool, a box);
      1 | t     | (31179,50040),(28113,25556)
      1 | t     | (28048,49694),(25000,25000)
 (29 rows)
-
-
