@@ -1,0 +1,28 @@
+SET search_path = public;
+BEGIN;
+
+create or replace function gist_tree(text)
+        returns text
+        as 'MODULE_PATHNAME'
+        language 'C'
+        with (isstrict); 
+
+create or replace function gist_tree(text,int4)
+        returns text
+        as 'MODULE_PATHNAME'
+        language 'C'
+        with (isstrict); 
+
+create or replace function gist_stat(text)
+        returns text
+        as 'MODULE_PATHNAME'
+        language 'C'
+        with (isstrict); 
+
+create or replace function gist_print(text)
+        returns setof record
+        as 'MODULE_PATHNAME'
+        language 'C'
+        with (isstrict); 
+
+END;
