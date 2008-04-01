@@ -561,8 +561,12 @@ refindPosition(GinStatState *st)
 						st->curval,
 						datum
 					));
-		if ( cmp == 0 ) 
+		if ( cmp == 0 )
+		{
+			if ( !st->ginstate.tupdesc->attrs[0]->attbyval )
+				pfree( st->curval );
 			return true;
+		}
 
 		st->offset++;
 	}
