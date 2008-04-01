@@ -1,8 +1,8 @@
-Gevel contrib module provides several functions useful for analyzing GiST index.
+Gevel contrib module provides several functions useful for analyzing GiST and GIN index.
 
 [Online version] of this document (http://www.sai.msu.su/~megera/oddmuse/index.cgi/Gevel)
 
-Caution: This module was designed for developers of GiST based indices !
+Caution: This module was designed for advanced users of GIN and GiST indices !
 
 Authors
 
@@ -122,3 +122,15 @@ regression=# select gist_tree('pix');
      1 | t     | (31179,50040),(28113,25556)
      1 | t     | (28048,49694),(25000,25000)
 (29 rows)
+
+   * gin_stat(INDEXNAME) prints estimated counts for each indexed values
+
+# SELECT * FROM gin_stat('gin_idx') as t(value int, nrow int) where nrow > 250;
+ value | nrow 
+ -------+------
+	31 |  254
+	47 |  251
+	52 |  257
+	59 |  259
+ (4 rows)
+

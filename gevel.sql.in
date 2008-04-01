@@ -25,4 +25,10 @@ create or replace function gist_print(text)
         language 'C'
         with (isstrict); 
 
+create or replace function gin_stat(text)
+        returns setof record
+        as 'MODULE_PATHNAME'
+        language 'C'
+        with (isstrict); 
+
 END;

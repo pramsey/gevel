@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "access/genam.h"
+#include "access/gin.h"
 #include "access/gist.h"
 #include "access/gist_private.h"
 #include "access/gistscan.h"
@@ -10,6 +11,8 @@
 #include "storage/lmgr.h"
 #include "catalog/namespace.h"
 #include "utils/builtins.h"
+#include "utils/lsyscache.h"
+#include "utils/datum.h"
 #include <fmgr.h>
 #include <funcapi.h>
 #include <access/heapam.h>
@@ -36,6 +39,7 @@ typedef struct {
 	int 	len;	
 } IdxInfo;
 
+static Relation checkOpenedRelation(Relation r, Oid PgAmOid);
 
 #ifdef PG_MODULE_MAGIC
 /* >= 8.2 */ 
@@ -45,10 +49,20 @@ PG_MODULE_MAGIC;
 static Relation
 gist_index_open(RangeVar *relvar) {
 	Oid relOid = RangeVarGetRelid(relvar, false);
-	return index_open(relOid, AccessExclusiveLock);
+	return checkOpenedRelation(
+				index_open(relOid, AccessExclusiveLock), GIST_AM_OID);
 }
 
 #define	gist_index_close(r)	index_close((r), AccessExclusiveLock)
+
+static Relation
+gin_index_open(RangeVar *relvar) {
+	Oid relOid = RangeVarGetRelid(relvar, false);
+	return checkOpenedRelation(
+				index_open(relOid, AccessShareLock), GIN_AM_OID);
+}
+
+#define gin_index_close(r) index_close((r), AccessShareLock)
 
 #else /* <8.2 */
 
@@ -57,12 +71,26 @@ gist_index_open(RangeVar *relvar) {
 	Relation rel = index_openrv(relvar);
 
 	LockRelation(rel, AccessExclusiveLock);
-	return rel;
+	return checkOpenedRelation(rel, GIST_AM_OID);
 }
 
 static void
 gist_index_close(Relation rel) {
 	UnlockRelation(rel, AccessExclusiveLock);
+	index_close(rel);
+}
+
+static Relation
+gin_index_open(RangeVar *relvar) {
+	Relation rel = index_openrv(relvar);
+
+	LockRelation(rel, AccessShareLock);
+	return checkOpenedRelation(rel, GIN_AM_OID);
+}
+
+static void
+gin_index_close(Relation rel) {
+	UnlockRelation(rel, AccessShareLock);
 	index_close(rel);
 }
 
@@ -75,6 +103,23 @@ gist_index_close(Relation rel) {
 #if PG_VERSION_NUM < 80300
 #define SET_VARSIZE(p,l)	VARATT_SIZEP(p)=(l)
 #endif
+
+static Relation 
+checkOpenedRelation(Relation r, Oid PgAmOid) {
+	if ( r->rd_am == NULL )
+		elog(ERROR, "Relation %s.%s is not an index",
+					get_namespace_name(RelationGetNamespace(r)),
+					RelationGetRelationName(r)
+			);
+
+	if ( r->rd_rel->relam != PgAmOid )
+		elog(ERROR, "Index %s.%s has wrong type",
+					get_namespace_name(RelationGetNamespace(r)),
+					RelationGetRelationName(r)
+			);
+	
+	return r;
+}
 
 static void
 gist_dumptree(Relation r, int level, BlockNumber blk, OffsetNumber coff, IdxInfo *info) {
@@ -430,6 +475,219 @@ gist_print(PG_FUNCTION_ARGS) {
 	st->item->offset = OffsetNumberNext(st->item->offset);
 	if ( !GistPageIsLeaf(st->item->page) )
 		openGPPage(funcctx, ItemPointerGetBlockNumber(&(ituple->t_tid)) );
+
+	SRF_RETURN_NEXT(funcctx, result);
+}
+
+typedef struct GinStatState {
+	Relation		index;
+	GinState		ginstate;
+
+	Buffer			buffer;
+	OffsetNumber	offset;
+	Datum			curval;
+	Datum			dvalues[2];
+	char			nulls[2];
+} GinStatState;
+
+static bool
+moveRightIfItNeeded( GinStatState *st )
+{
+	Page page = BufferGetPage(st->buffer);
+
+	if ( st->offset > PageGetMaxOffsetNumber(page) ) {
+		/*
+		* We scaned the whole page, so we should take right page
+		*/
+		BlockNumber blkno = GinPageGetOpaque(page)->rightlink;               
+
+		if ( GinPageRightMost(page) )
+			return false;  /* no more page */
+
+		LockBuffer(st->buffer, GIN_UNLOCK);
+		st->buffer = ReleaseAndReadBuffer(st->buffer, st->index, blkno);
+		LockBuffer(st->buffer, GIN_SHARE);
+		st->offset = FirstOffsetNumber;
+	}
+
+	return true;
+}
+
+/*
+ * Refinds a previois position, at returns it has correctly 
+ * set offset and buffer is locked
+ */
+static bool
+refindPosition(GinStatState *st)
+{
+	Page	page;        
+
+	/* find left if needed (it causes only for first search) */
+	for (;;) {
+		IndexTuple  itup;
+		BlockNumber blkno;
+
+		LockBuffer(st->buffer, GIN_SHARE);
+
+		page = BufferGetPage(st->buffer);
+		if (GinPageIsLeaf(page))
+			break;
+
+		itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, FirstOffsetNumber));
+		blkno = GinItemPointerGetBlockNumber(&(itup)->t_tid);
+
+		LockBuffer(st->buffer,GIN_UNLOCK);
+		st->buffer = ReleaseAndReadBuffer(st->buffer, st->index, blkno);
+	}
+
+	if (st->offset == InvalidOffsetNumber) {
+		return (PageGetMaxOffsetNumber(page) >= FirstOffsetNumber ) ? true : false; /* first one */
+	}
+
+	for(;;) {
+		int 	cmp;
+		bool	isnull;
+		Datum	datum;
+		IndexTuple itup;
+
+		if (moveRightIfItNeeded(st)==false)
+			return false;
+
+		itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, st->offset));
+		datum = index_getattr(itup, FirstOffsetNumber, st->ginstate.tupdesc, &isnull);
+		cmp = DatumGetInt32(
+				FunctionCall2(
+						&st->ginstate.compareFn,
+						st->curval,
+						datum
+					));
+		if ( cmp == 0 ) 
+			return true;
+
+		st->offset++;
+	}
+
+	return false;
+}
+
+static void
+gin_setup_firstcall(FuncCallContext  *funcctx, text *name) {
+	MemoryContext     oldcontext;
+	GinStatState     *st;
+	char *relname=t2c(name);
+	TupleDesc            tupdesc;
+
+	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+	st=(GinStatState*)palloc( sizeof(GinStatState) );
+	memset(st,0,sizeof(GinStatState));
+	st->index = gin_index_open(
+		 makeRangeVarFromNameList(stringToQualifiedNameList(relname, "gist_tree")));
+	initGinState( &st->ginstate, st->index );
+
+	funcctx->user_fctx = (void*)st;
+
+	tupdesc = CreateTemplateTupleDesc(2, false);
+	TupleDescInitEntry(tupdesc, 1, "value", 
+			st->index->rd_att->attrs[0]->atttypid, 
+			st->index->rd_att->attrs[0]->atttypmod,
+			st->index->rd_att->attrs[0]->attndims);
+	TupleDescInitEntry(tupdesc, 2, "nrow", INT4OID, -1, 0);
+
+	memset( st->nulls, ' ', 2*sizeof(char) );
+
+	funcctx->slot = TupleDescGetSlot(tupdesc);
+	funcctx->attinmeta = TupleDescGetAttInMetadata(tupdesc);
+
+	MemoryContextSwitchTo(oldcontext);
+	pfree(relname);
+
+	st->offset = InvalidOffsetNumber;
+	st->buffer = ReadBuffer( st->index, GIN_ROOT_BLKNO );
+}
+
+static void
+processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
+	MemoryContext     	oldcontext;
+	Datum				datum;
+	bool				isnull;
+
+	datum = index_getattr(itup, FirstOffsetNumber, st->ginstate.tupdesc, &isnull);
+	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+	st->curval = datumCopy(
+					index_getattr(itup, FirstOffsetNumber, st->ginstate.tupdesc, &isnull),
+					st->ginstate.tupdesc->attrs[0]->attbyval,
+					st->ginstate.tupdesc->attrs[0]->attlen );
+	MemoryContextSwitchTo(oldcontext);
+
+	st->dvalues[0] = st->curval;
+
+	if ( GinIsPostingTree(itup) ) {
+		BlockNumber	rootblkno = GinGetPostingTree(itup);
+		GinPostingTreeScan *gdi;
+		Buffer	 	entrybuffer;		  
+		Page        page;
+
+		LockBuffer(st->buffer, GIN_UNLOCK);
+		gdi = prepareScanPostingTree(st->index, rootblkno, TRUE);
+		entrybuffer = scanBeginPostingTree(gdi);
+
+		page = BufferGetPage(entrybuffer);
+		st->dvalues[1] = Int32GetDatum( gdi->stack->predictNumber * GinPageGetOpaque(page)->maxoff );
+
+		LockBuffer(entrybuffer, GIN_UNLOCK);
+		freeGinBtreeStack(gdi->stack);
+		pfree(gdi);
+	} else {
+		st->dvalues[1] = Int32GetDatum( GinGetNPosting(itup) );
+		LockBuffer(st->buffer, GIN_UNLOCK);
+	}
+}
+
+PG_FUNCTION_INFO_V1(gin_stat);
+Datum	gin_stat(PG_FUNCTION_ARGS);
+Datum
+gin_stat(PG_FUNCTION_ARGS) {
+	FuncCallContext  *funcctx;
+	GinStatState     *st;
+	Datum result=(Datum)0;
+	IndexTuple      ituple;
+	HeapTuple       htuple;
+	Page page;
+
+	if (SRF_IS_FIRSTCALL()) {
+		text    *name=PG_GETARG_TEXT_P(0);
+		funcctx = SRF_FIRSTCALL_INIT();
+		gin_setup_firstcall(funcctx, name);
+		PG_FREE_IF_COPY(name,0);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();	
+	st = (GinStatState*)(funcctx->user_fctx);
+
+	if ( refindPosition(st) == false ) {
+		UnlockReleaseBuffer( st->buffer );
+		gin_index_close(st->index);
+
+		SRF_RETURN_DONE(funcctx);
+	}
+
+	st->offset++;
+	
+	if (moveRightIfItNeeded(st)==false) { 
+		UnlockReleaseBuffer( st->buffer );
+		gin_index_close(st->index);
+
+		SRF_RETURN_DONE(funcctx);
+	}
+
+	page = BufferGetPage(st->buffer);
+	ituple = (IndexTuple) PageGetItem(page, PageGetItemId(page, st->offset)); 
+
+	processTuple( funcctx,  st, ituple );
+	
+	htuple = heap_formtuple(funcctx->attinmeta->tupdesc, st->dvalues, st->nulls);
+	result = TupleGetDatum(funcctx->slot, htuple);
 
 	SRF_RETURN_NEXT(funcctx, result);
 }
