@@ -68,6 +68,14 @@ gist_index_close(Relation rel) {
 
 #endif
 
+#if PG_VERSION_NUM >= 80300
+#define stringToQualifiedNameList(x,y)	stringToQualifiedNameList(x)
+#endif
+
+#if PG_VERSION_NUM < 80300
+#define SET_VARSIZE(p,l)	VARATT_SIZEP(p)=(l)
+#endif
+
 static void
 gist_dumptree(Relation r, int level, BlockNumber blk, OffsetNumber coff, IdxInfo *info) {
 	Buffer		buffer;
@@ -130,7 +138,6 @@ gist_tree(PG_FUNCTION_ARGS) {
 	List       *relname_list;
 	IdxInfo	info;
 
-
 	relname_list = stringToQualifiedNameList(relname, "gist_tree");
 	relvar = makeRangeVarFromNameList(relname_list);
 	index = gist_index_open(relvar);
@@ -146,7 +153,7 @@ gist_tree(PG_FUNCTION_ARGS) {
 	gist_index_close(index);
 	pfree(relname);
 
-	VARATT_SIZEP(info.txt)=info.ptr-((char*)info.txt);	
+	SET_VARSIZE(info.txt, info.ptr-((char*)info.txt));
 	PG_RETURN_POINTER(info.txt);
 }
 
@@ -256,7 +263,7 @@ gist_stat(PG_FUNCTION_ARGS) {
 
 	ptr=strchr(ptr,'\0');
 		 
-	VARATT_SIZEP(out)=ptr-((char*)out);	
+	SET_VARSIZE(out, ptr-((char*)out));
 	PG_RETURN_POINTER(out);
 }
 

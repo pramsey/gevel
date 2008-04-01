@@ -1,0 +1,98 @@
+SET client_min_messages = warning;
+\set ECHO none
+RESET client_min_messages;
+CREATE TABLE gevelt ( t box );
+\copy gevelt from 'data/rect.data'
+CREATE INDEX gist_idx ON gevelt USING gist ( t );
+--GiST
+SELECT gist_stat('gist_idx');
+                gist_stat                
+-----------------------------------------
+ Number of levels:          2
+ Number of pages:           33
+ Number of leaf pages:      32
+ Number of tuples:          3410
+ Number of invalid tuples:  0
+ Number of leaf tuples:     3378
+ Total size of tuples:      142624 bytes
+ Total size of leaf tuples: 141232 bytes
+ Total size of index:       270336 bytes
+ 
+(1 row)
+
+SELECT gist_tree('gist_idx');
+                                           gist_tree                                           
+-----------------------------------------------------------------------------------------------
+ 0(l:0) blk: 0 numTuple: 32 free: 6768b(17.06%) rightlink:4294967295 (InvalidBlockNumber)
+     1(l:1) blk: 2 numTuple: 278 free: 3700b(54.66%) rightlink:4294967295 (InvalidBlockNumber)
+     2(l:1) blk: 18 numTuple: 109 free: 3352b(58.92%) rightlink:3 (OK)
+     3(l:1) blk: 3 numTuple: 98 free: 3836b(52.99%) rightlink:20 (OK)
+     4(l:1) blk: 20 numTuple: 114 free: 3132b(61.62%) rightlink:16 (OK)
+     5(l:1) blk: 13 numTuple: 110 free: 3308b(59.46%) rightlink:18 (OK)
+     6(l:1) blk: 6 numTuple: 102 free: 3660b(55.15%) rightlink:22 (OK)
+     7(l:1) blk: 22 numTuple: 102 free: 3660b(55.15%) rightlink:13 (OK)
+     8(l:1) blk: 8 numTuple: 103 free: 3616b(55.69%) rightlink:19 (OK)
+     9(l:1) blk: 9 numTuple: 97 free: 3880b(52.45%) rightlink:25 (OK)
+     10(l:1) blk: 26 numTuple: 100 free: 3748b(54.07%) rightlink:7 (OK)
+     11(l:1) blk: 10 numTuple: 94 free: 4012b(50.83%) rightlink:26 (OK)
+     12(l:1) blk: 24 numTuple: 96 free: 3924b(51.91%) rightlink:10 (OK)
+     13(l:1) blk: 4 numTuple: 88 free: 4276b(47.60%) rightlink:27 (OK)
+     14(l:1) blk: 27 numTuple: 93 free: 4056b(50.29%) rightlink:12 (OK)
+     15(l:1) blk: 17 numTuple: 91 free: 4144b(49.22%) rightlink:28 (OK)
+     16(l:1) blk: 28 numTuple: 99 free: 3792b(53.53%) rightlink:4 (OK)
+     17(l:1) blk: 30 numTuple: 91 free: 4144b(49.22%) rightlink:2 (OK)
+     18(l:1) blk: 5 numTuple: 104 free: 3572b(56.23%) rightlink:24 (OK)
+     19(l:1) blk: 15 numTuple: 92 free: 4100b(49.75%) rightlink:29 (OK)
+     20(l:1) blk: 7 numTuple: 90 free: 4188b(48.68%) rightlink:21 (OK)
+     21(l:1) blk: 29 numTuple: 100 free: 3748b(54.07%) rightlink:9 (OK)
+     22(l:1) blk: 25 numTuple: 96 free: 3924b(51.91%) rightlink:17 (OK)
+     23(l:1) blk: 1 numTuple: 99 free: 3792b(53.53%) rightlink:23 (OK)
+     24(l:1) blk: 21 numTuple: 107 free: 3440b(57.84%) rightlink:11 (OK)
+     25(l:1) blk: 14 numTuple: 90 free: 4188b(48.68%) rightlink:31 (OK)
+     26(l:1) blk: 31 numTuple: 90 free: 4188b(48.68%) rightlink:5 (OK)
+     27(l:1) blk: 32 numTuple: 88 free: 4276b(47.60%) rightlink:8 (OK)
+     28(l:1) blk: 12 numTuple: 164 free: 932b(88.58%) rightlink:6 (OK)
+     29(l:1) blk: 19 numTuple: 94 free: 4012b(50.83%) rightlink:14 (OK)
+     30(l:1) blk: 11 numTuple: 94 free: 4012b(50.83%) rightlink:30 (OK)
+     31(l:1) blk: 23 numTuple: 101 free: 3704b(54.61%) rightlink:15 (OK)
+     32(l:1) blk: 16 numTuple: 104 free: 3572b(56.23%) rightlink:32 (OK)
+ 
+(1 row)
+
+SELECT * FROM gist_print('gist_idx') as t(level int, valid bool, a box) where level=1;
+ level | valid |              a              
+-------+-------+-----------------------------
+     1 | t     | 
+     1 | t     | (24240,50012),(204,46917)
+     1 | t     | (28102,24428),(25047,579)
+     1 | t     | (31193,24679),(28142,6)
+     1 | t     | (24938,46902),(64,43729)
+     1 | t     | (24898,40568),(3,37480)
+     1 | t     | (24647,43650),(179,40585)
+     1 | t     | (32737,49923),(31178,1038)
+     1 | t     | (25002,6338),(12350,51)
+     1 | t     | (49985,25005),(46856,499)
+     1 | t     | (46830,24767),(43743,222)
+     1 | t     | (43689,24613),(40603,43)
+     1 | t     | (6348,37358),(120,25034)
+     1 | t     | (12528,37333),(6305,24861)
+     1 | t     | (25054,18890),(12555,12796)
+     1 | t     | (24855,24987),(12403,18887)
+     1 | t     | (50027,49912),(37338,43927)
+     1 | t     | (40565,24963),(37375,491)
+     1 | t     | (9308,24151),(6200,620)
+     1 | t     | (43715,37586),(37415,25070)
+     1 | t     | (12343,24542),(9295,294)
+     1 | t     | (24919,12698),(12654,6518)
+     1 | t     | (3088,24465),(15,81)
+     1 | t     | (49999,37405),(43837,25153)
+     1 | t     | (35828,49443),(34242,972)
+     1 | t     | (37357,50073),(35769,357)
+     1 | t     | (31171,50040),(24900,37723)
+     1 | t     | (24840,37414),(12552,24965)
+     1 | t     | (34270,49382),(32763,594)
+     1 | t     | (49957,43846),(37423,37741)
+     1 | t     | (6197,24629),(3113,108)
+     1 | t     | (31179,37276),(24921,25000)
+(32 rows)
+
