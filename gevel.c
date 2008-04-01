@@ -564,7 +564,7 @@ refindPosition(GinStatState *st)
 		if ( cmp == 0 )
 		{
 			if ( !st->ginstate.tupdesc->attrs[0]->attbyval )
-				pfree( st->curval );
+				pfree( (void*) st->curval );
 			return true;
 		}
 
