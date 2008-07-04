@@ -134,3 +134,12 @@ regression=# select gist_tree('pix');
 	59 |  259
  (4 rows)
 
+   * bigint gin_count_estimate(INDEXNAME, TSQUERY) outputs number of indexed
+	 rows matched query. It doesn't touch heap at all.
+
+# select gin_count_estimate('qq', 'star');
+ gin_count_estimate 
+--------------------
+				 790
+(1 row)
+

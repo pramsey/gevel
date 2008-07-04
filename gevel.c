@@ -10,13 +10,20 @@
 #include "miscadmin.h"
 #include "storage/lmgr.h"
 #include "catalog/namespace.h"
+#if PG_VERSION_NUM >= 80300
+#include <tsearch/ts_utils.h>
+#endif
+#include <utils/tqual.h>
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/datum.h"
+#include "utils/fmgroids.h"
 #include <fmgr.h>
 #include <funcapi.h>
 #include <access/heapam.h>
 #include <catalog/pg_type.h>
+#include <access/relscan.h>
+
 
 #define PAGESIZE 	(BLCKSZ - MAXALIGN(sizeof(PageHeaderData) + sizeof(ItemIdData)))
 
@@ -586,7 +593,7 @@ gin_setup_firstcall(FuncCallContext  *funcctx, text *name) {
 	st=(GinStatState*)palloc( sizeof(GinStatState) );
 	memset(st,0,sizeof(GinStatState));
 	st->index = gin_index_open(
-		 makeRangeVarFromNameList(stringToQualifiedNameList(relname, "gist_tree")));
+		 makeRangeVarFromNameList(stringToQualifiedNameList(relname, "gin_stat")));
 	initGinState( &st->ginstate, st->index );
 
 	funcctx->user_fctx = (void*)st;
@@ -696,3 +703,51 @@ gin_stat(PG_FUNCTION_ARGS) {
 	SRF_RETURN_NEXT(funcctx, result);
 }
 
+PG_FUNCTION_INFO_V1(gin_count_estimate);
+Datum gin_count_estimate(PG_FUNCTION_ARGS);
+#if PG_VERSION_NUM >= 80300
+Datum
+gin_count_estimate(PG_FUNCTION_ARGS) {
+	text    		*name=PG_GETARG_TEXT_P(0);
+	Relation 		index;
+	TIDBitmap		*bitmap = tbm_create(work_mem * 1024L);
+	IndexScanDesc	scan;
+	int64			count;
+	char 			*relname=t2c(name);
+	ScanKeyData		key;
+
+	index = gin_index_open(
+		 makeRangeVarFromNameList(stringToQualifiedNameList(relname, "gin_count_estimate")));
+
+	if ( index->rd_opcintype[0] != TSVECTOROID ) {
+		gin_index_close(index);
+		elog(ERROR, "Column type is not a tsvector");
+	}
+
+	key.sk_flags 	= 0;
+	key.sk_attno 	= 1;
+	key.sk_strategy	= TSearchStrategyNumber;
+	key.sk_subtype  = 0;
+	key.sk_argument = PG_GETARG_DATUM(1);
+
+	fmgr_info( F_TS_MATCH_VQ , &key.sk_func );
+
+	scan = index_beginscan_bitmap(index, SnapshotNow, 1, &key);
+
+	count = index_getbitmap(scan, bitmap);
+	tbm_free(bitmap);
+
+	index_endscan( scan );
+	gin_index_close(index);
+
+
+	PG_RETURN_INT64(count);
+}
+#else
+Datum
+gin_count_estimate(PG_FUNCTION_ARGS) {
+	elog(NOTICE, "Function is not working under PgSQL < 8.3");
+
+	PG_RETURN_INT64(0);
+}
+#endif

@@ -31,4 +31,11 @@ create or replace function gin_stat(text)
         language 'C'
         with (isstrict); 
 
+create or replace function gin_count_estimate(text, tsquery)
+        returns bigint 
+        as 'MODULE_PATHNAME'
+        language 'C'
+        with (isstrict); 
+
+
 END;
