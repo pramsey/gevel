@@ -710,11 +710,18 @@ Datum
 gin_count_estimate(PG_FUNCTION_ARGS) {
 	text    		*name=PG_GETARG_TEXT_P(0);
 	Relation 		index;
-	TIDBitmap		*bitmap = tbm_create(work_mem * 1024L);
 	IndexScanDesc	scan;
-	int64			count;
+	int64			count = 0;
 	char 			*relname=t2c(name);
 	ScanKeyData		key;
+#if PG_VERSION_NUM >= 80400
+	TIDBitmap		*bitmap = tbm_create(work_mem * 1024L);
+#else
+#define	MAXTIDS		1024
+	ItemPointerData	tids[MAXTIDS];
+	int32			returned_tids;
+	bool			more;
+#endif
 
 	index = gin_index_open(
 		 makeRangeVarFromNameList(stringToQualifiedNameList(relname, "gin_count_estimate")));
@@ -732,14 +739,22 @@ gin_count_estimate(PG_FUNCTION_ARGS) {
 
 	fmgr_info( F_TS_MATCH_VQ , &key.sk_func );
 
+#if PG_VERSION_NUM >= 80400
 	scan = index_beginscan_bitmap(index, SnapshotNow, 1, &key);
 
 	count = index_getbitmap(scan, bitmap);
 	tbm_free(bitmap);
+#else
+	scan = index_beginscan_multi(index, SnapshotNow, 1, &key);
+
+	do {
+		more = index_getmulti(scan, tids, MAXTIDS, &returned_tids);
+		count += returned_tids;
+	} while(more);
+#endif
 
 	index_endscan( scan );
 	gin_index_close(index);
-
 
 	PG_RETURN_INT64(count);
 }
