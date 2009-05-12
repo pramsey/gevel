@@ -124,6 +124,9 @@ regression=# select gist_tree('pix');
 (29 rows)
 
    * gin_stat(INDEXNAME) prints estimated counts for each indexed values
+	 Note: since 8.4 gin_stat function has gin_stat(INDEXNAME, COLNUMBER) 
+	 prototype, single-argument function will return result for a first
+	 column of index
 
 # SELECT * FROM gin_stat('gin_idx') as t(value int, nrow int) where nrow > 250;
  value | nrow 

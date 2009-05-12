@@ -489,6 +489,7 @@ gist_print(PG_FUNCTION_ARGS) {
 typedef struct GinStatState {
 	Relation		index;
 	GinState		ginstate;
+	OffsetNumber	attnum;
 
 	Buffer			buffer;
 	OffsetNumber	offset;
@@ -553,7 +554,9 @@ refindPosition(GinStatState *st)
 
 	for(;;) {
 		int 	cmp;
+#if PG_VERSION_NUM < 80400
 		bool	isnull;
+#endif
 		Datum	datum;
 		IndexTuple itup;
 
@@ -561,16 +564,25 @@ refindPosition(GinStatState *st)
 			return false;
 
 		itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, st->offset));
+#if PG_VERSION_NUM >= 80400
+		datum = gin_index_getattr(&st->ginstate, itup);
+
+		cmp = compareAttEntries(&st->ginstate,
+									st->attnum + 1, st->curval,
+									gintuple_get_attrnum(&st->ginstate, itup), datum);
+#else
 		datum = index_getattr(itup, FirstOffsetNumber, st->ginstate.tupdesc, &isnull);
+
 		cmp = DatumGetInt32(
 				FunctionCall2(
 						&st->ginstate.compareFn,
 						st->curval,
 						datum
 					));
+#endif
 		if ( cmp == 0 )
 		{
-			if ( !st->ginstate.tupdesc->attrs[0]->attbyval )
+			if ( !st->index->rd_att->attrs[st->attnum]->attbyval )
 				pfree( (void*) st->curval );
 			return true;
 		}
@@ -582,7 +594,7 @@ refindPosition(GinStatState *st)
 }
 
 static void
-gin_setup_firstcall(FuncCallContext  *funcctx, text *name) {
+gin_setup_firstcall(FuncCallContext  *funcctx, text *name, int attnum) {
 	MemoryContext     oldcontext;
 	GinStatState     *st;
 	char *relname=t2c(name);
@@ -596,13 +608,21 @@ gin_setup_firstcall(FuncCallContext  *funcctx, text *name) {
 		 makeRangeVarFromNameList(stringToQualifiedNameList(relname, "gin_stat")));
 	initGinState( &st->ginstate, st->index );
 
+#if PG_VERSION_NUM >= 80400
+	if (attnum < 0 || attnum >= st->index->rd_att->natts)
+		elog(ERROR,"Wrong column's number");
+	st->attnum = attnum;
+#else
+	st->attnum = 0;
+#endif
+
 	funcctx->user_fctx = (void*)st;
 
 	tupdesc = CreateTemplateTupleDesc(2, false);
 	TupleDescInitEntry(tupdesc, 1, "value", 
-			st->index->rd_att->attrs[0]->atttypid, 
-			st->index->rd_att->attrs[0]->atttypmod,
-			st->index->rd_att->attrs[0]->attndims);
+			st->index->rd_att->attrs[st->attnum]->atttypid, 
+			st->index->rd_att->attrs[st->attnum]->atttypmod,
+			st->index->rd_att->attrs[st->attnum]->attndims);
 	TupleDescInitEntry(tupdesc, 2, "nrow", INT4OID, -1, 0);
 
 	memset( st->nulls, ' ', 2*sizeof(char) );
@@ -620,15 +640,19 @@ gin_setup_firstcall(FuncCallContext  *funcctx, text *name) {
 static void
 processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 	MemoryContext     	oldcontext;
-	Datum				datum;
+#if PG_VERSION_NUM < 80400
 	bool				isnull;
+#endif
 
-	datum = index_getattr(itup, FirstOffsetNumber, st->ginstate.tupdesc, &isnull);
 	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 	st->curval = datumCopy(
+#if PG_VERSION_NUM >= 80400
+					gin_index_getattr(&st->ginstate, itup),
+#else
 					index_getattr(itup, FirstOffsetNumber, st->ginstate.tupdesc, &isnull),
-					st->ginstate.tupdesc->attrs[0]->attbyval,
-					st->ginstate.tupdesc->attrs[0]->attlen );
+#endif
+					st->index->rd_att->attrs[st->attnum]->attbyval,
+					st->index->rd_att->attrs[st->attnum]->attlen );
 	MemoryContextSwitchTo(oldcontext);
 
 	st->dvalues[0] = st->curval;
@@ -669,7 +693,7 @@ gin_stat(PG_FUNCTION_ARGS) {
 	if (SRF_IS_FIRSTCALL()) {
 		text    *name=PG_GETARG_TEXT_P(0);
 		funcctx = SRF_FIRSTCALL_INIT();
-		gin_setup_firstcall(funcctx, name);
+		gin_setup_firstcall(funcctx, name, (PG_NARGS()==2) ? PG_GETARG_INT32(1) : 0 );
 		PG_FREE_IF_COPY(name,0);
 	}
 
@@ -683,17 +707,24 @@ gin_stat(PG_FUNCTION_ARGS) {
 		SRF_RETURN_DONE(funcctx);
 	}
 
-	st->offset++;
+	for(;;) {
+		st->offset++;
 	
-	if (moveRightIfItNeeded(st)==false) { 
-		UnlockReleaseBuffer( st->buffer );
-		gin_index_close(st->index);
+		if (moveRightIfItNeeded(st)==false) { 
+			UnlockReleaseBuffer( st->buffer );
+			gin_index_close(st->index);
 
-		SRF_RETURN_DONE(funcctx);
+			SRF_RETURN_DONE(funcctx);
+		}
+
+		page = BufferGetPage(st->buffer);
+		ituple = (IndexTuple) PageGetItem(page, PageGetItemId(page, st->offset)); 
+
+#if PG_VERSION_NUM >= 80400
+		if (st->attnum + 1 == gintuple_get_attrnum(&st->ginstate, ituple))
+#endif
+			break;
 	}
-
-	page = BufferGetPage(st->buffer);
-	ituple = (IndexTuple) PageGetItem(page, PageGetItemId(page, st->offset)); 
 
 	processTuple( funcctx,  st, ituple );
 	
