@@ -22,5 +22,5 @@ CREATE INDEX gin_idx ON test__int USING gin ( a );
 
 INSERT INTO test__int ( SELECT ARRAY[t] || '{1000}'::_int4 FROM generate_series (1,300) as t );
 INSERT INTO test__int ( SELECT ARRAY[t] || '{1001}'::_int4 FROM generate_series (1,300) as t, generate_series(1,12) );
-
+VACUUM ANALYZE test__int; 
 SELECT * FROM gin_stat('gin_idx') as t(value int, nrow int);
