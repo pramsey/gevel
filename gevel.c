@@ -2,6 +2,9 @@
 
 #include "access/genam.h"
 #include "access/gin.h"
+#if PG_VERSION_NUM >= 90100
+#include "access/gin_private.h"
+#endif
 #include "access/gist.h"
 #include "access/gist_private.h"
 #include "access/gistscan.h"
@@ -156,13 +159,13 @@ gist_dumptree(Relation r, int level, BlockNumber blk, OffsetNumber coff, IdxInfo
 		info->ptr = ((char*)info->txt)+dist;
 	}
 
-	sprintf(info->ptr, "%s%d(l:%d) blk: %d numTuple: %d free: %db(%.2f%%) rightlink:%u (%s)\n", 
+	sprintf(info->ptr, "%s%d(l:%d) blk: %u numTuple: %d free: %db(%.2f%%) rightlink:%u (%s)\n", 
 		pred,
 		coff, 
 		level, 
-		(int) blk,
+		blk,
 		(int) maxoff, 
-		PageGetFreeSpace(page),  
+		(int) PageGetFreeSpace(page),  
 		100.0*(((float)PAGESIZE)-(float)PageGetFreeSpace(page))/((float)PAGESIZE),
 		GistPageGetOpaque(page)->rightlink,
 		( GistPageGetOpaque(page)->rightlink == InvalidBlockNumber ) ? "InvalidBlockNumber" : "OK" );
@@ -494,6 +497,9 @@ typedef struct GinStatState {
 	Buffer			buffer;
 	OffsetNumber	offset;
 	Datum			curval;
+#if PG_VERSION_NUM >= 90100
+	GinNullCategory	category;
+#endif
 	Datum			dvalues[2];
 	char			nulls[2];
 } GinStatState;
@@ -553,18 +559,25 @@ refindPosition(GinStatState *st)
 	}
 
 	for(;;) {
-		int 	cmp;
-#if PG_VERSION_NUM < 80400
-		bool	isnull;
+		int 			cmp;
+#if PG_VERSION_NUM >= 90100
+		GinNullCategory	category;
+#elif PG_VERSION_NUM < 80400
+		bool			isnull = false;
 #endif
-		Datum	datum;
-		IndexTuple itup;
+		Datum			datum;
+		IndexTuple 		itup;
 
 		if (moveRightIfItNeeded(st)==false)
 			return false;
 
 		itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, st->offset));
-#if PG_VERSION_NUM >= 80400
+#if PG_VERSION_NUM >= 90100
+		datum = gintuple_get_key(&st->ginstate, itup, &category); 
+		cmp = ginCompareAttEntries(&st->ginstate,
+									st->attnum + 1, st->curval, st->category,
+									gintuple_get_attrnum(&st->ginstate, itup), datum, category);
+#elif PG_VERSION_NUM >= 80400
 		datum = gin_index_getattr(&st->ginstate, itup);
 
 		cmp = compareAttEntries(&st->ginstate,
@@ -646,7 +659,9 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 
 	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 	st->curval = datumCopy(
-#if PG_VERSION_NUM >= 80400
+#if PG_VERSION_NUM >= 90100
+					gintuple_get_key(&st->ginstate, itup, &st->category),
+#elif PG_VERSION_NUM >= 80400
 					gin_index_getattr(&st->ginstate, itup),
 #else
 					index_getattr(itup, FirstOffsetNumber, st->ginstate.tupdesc, &isnull),
@@ -656,7 +671,11 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 	MemoryContextSwitchTo(oldcontext);
 
 	st->dvalues[0] = st->curval;
-
+#if PG_VERSION_NUM >= 90100
+	/* do no distiguish various null category */
+	st->nulls[0] = (st->category == GIN_CAT_NORM_KEY) ? ' ' : 'n';
+#endif
+		
 	if ( GinIsPostingTree(itup) ) {
 		BlockNumber	rootblkno = GinGetPostingTree(itup);
 		GinPostingTreeScan *gdi;
@@ -664,8 +683,13 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 		Page        page;
 
 		LockBuffer(st->buffer, GIN_UNLOCK);
+#if PG_VERSION_NUM >= 90100
+		gdi = ginPrepareScanPostingTree(st->index, rootblkno, TRUE);
+		entrybuffer = ginScanBeginPostingTree(gdi);
+#else
 		gdi = prepareScanPostingTree(st->index, rootblkno, TRUE);
 		entrybuffer = scanBeginPostingTree(gdi);
+#endif
 
 		page = BufferGetPage(entrybuffer);
 		st->dvalues[1] = Int32GetDatum( gdi->stack->predictNumber * GinPageGetOpaque(page)->maxoff );
@@ -770,7 +794,13 @@ gin_count_estimate(PG_FUNCTION_ARGS) {
 
 	fmgr_info( F_TS_MATCH_VQ , &key.sk_func );
 
-#if PG_VERSION_NUM >= 80400
+#if PG_VERSION_NUM >= 90100
+	scan = index_beginscan_bitmap(index, SnapshotNow, 1);
+	index_rescan(scan, &key, 1, NULL, 0);
+
+	count = index_getbitmap(scan, bitmap);
+	tbm_free(bitmap);
+#elif PG_VERSION_NUM >= 80400
 	scan = index_beginscan_bitmap(index, SnapshotNow, 1, &key);
 
 	count = index_getbitmap(scan, bitmap);
