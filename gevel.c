@@ -58,7 +58,11 @@ PG_MODULE_MAGIC;
 
 static Relation
 gist_index_open(RangeVar *relvar) {
+#if PG_VERSION_NUM < 90100 
 	Oid relOid = RangeVarGetRelid(relvar, false);
+#else
+	Oid relOid = RangeVarGetRelid(relvar, NoLock, false);
+#endif
 	return checkOpenedRelation(
 				index_open(relOid, AccessExclusiveLock), GIST_AM_OID);
 }
@@ -67,7 +71,11 @@ gist_index_open(RangeVar *relvar) {
 
 static Relation
 gin_index_open(RangeVar *relvar) {
+#if PG_VERSION_NUM < 90100 
 	Oid relOid = RangeVarGetRelid(relvar, false);
+#else
+	Oid relOid = RangeVarGetRelid(relvar, NoLock, false);
+#endif
 	return checkOpenedRelation(
 				index_open(relOid, AccessShareLock), GIN_AM_OID);
 }
