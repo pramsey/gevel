@@ -8,6 +8,10 @@
 #include "access/gist.h"
 #include "access/gist_private.h"
 #include "access/gistscan.h"
+#if PG_VERSION_NUM >= 90200
+#include "access/spgist_private.h"
+#include "access/spgist.h"
+#endif
 #include "access/heapam.h"
 #include "catalog/index.h"
 #include "miscadmin.h"
@@ -58,7 +62,7 @@ PG_MODULE_MAGIC;
 
 static Relation
 gist_index_open(RangeVar *relvar) {
-#if PG_VERSION_NUM < 90100 
+#if PG_VERSION_NUM <= 90100 
 	Oid relOid = RangeVarGetRelid(relvar, false);
 #else
 	Oid relOid = RangeVarGetRelid(relvar, NoLock, false);
@@ -71,7 +75,7 @@ gist_index_open(RangeVar *relvar) {
 
 static Relation
 gin_index_open(RangeVar *relvar) {
-#if PG_VERSION_NUM < 90100 
+#if PG_VERSION_NUM <= 90100 
 	Oid relOid = RangeVarGetRelid(relvar, false);
 #else
 	Oid relOid = RangeVarGetRelid(relvar, NoLock, false);
@@ -835,3 +839,139 @@ gin_count_estimate(PG_FUNCTION_ARGS) {
 	PG_RETURN_INT64(0);
 }
 #endif
+
+PG_FUNCTION_INFO_V1(spgist_stat);
+Datum spgist_stat(PG_FUNCTION_ARGS);
+Datum
+spgist_stat(PG_FUNCTION_ARGS)
+{
+#if PG_VERSION_NUM < 90200
+	elog(NOTICE, "Function is not working under PgSQL < 9.2");
+
+	PG_RETURN_TEXT_P(CStringGetTextDatum("???"));
+#else
+	text	   *name = PG_GETARG_TEXT_P(0);
+	RangeVar   *relvar;
+	Relation	index;
+	BlockNumber blkno;
+	BlockNumber totalPages = 0,
+				innerPages = 0,
+				leafPages = 0,
+				emptyPages = 0,
+				deletedPages = 0;
+	double	  usedSpace = 0.0;
+	char		res[1024];
+	int		 bufferSize = -1;
+	int64	   innerTuples = 0,
+				leafTuples = 0,
+				nAllTheSame = 0,
+				nLeafPlaceholder = 0,
+				nInnerPlaceholder = 0,
+				nLeafRedirect = 0,
+				nInnerRedirect = 0;
+
+#define IS_INDEX(r) ((r)->rd_rel->relkind == RELKIND_INDEX)
+#define IS_SPGIST(r) ((r)->rd_rel->relam == SPGIST_AM_OID)
+
+	relvar = makeRangeVarFromNameList(textToQualifiedNameList(name));
+	index = relation_openrv(relvar, AccessExclusiveLock);
+
+	if (!IS_INDEX(index) || !IS_SPGIST(index))
+		elog(ERROR, "relation \"%s\" is not an SPGiST index",
+			 RelationGetRelationName(index));
+
+	totalPages = RelationGetNumberOfBlocks(index);
+
+	for (blkno = SPGIST_HEAD_BLKNO; blkno < totalPages; blkno++)
+	{
+		Buffer	  buffer;
+		Page		page;
+		int		 pageFree;
+
+		buffer = ReadBuffer(index, blkno);
+		LockBuffer(buffer, BUFFER_LOCK_SHARE);
+
+		page = BufferGetPage(buffer);
+
+		if (PageIsNew(page) || SpGistPageIsDeleted(page))
+		{
+			deletedPages++;
+			UnlockReleaseBuffer(buffer);
+			continue;
+		}
+
+		if (SpGistPageIsLeaf(page))
+		{
+			leafPages++;
+			leafTuples += PageGetMaxOffsetNumber(page);
+			nLeafPlaceholder += SpGistPageGetOpaque(page)->nPlaceholder;
+			nLeafRedirect += SpGistPageGetOpaque(page)->nRedirection;
+		}
+		else
+		{
+			int	 i,
+					max;
+
+			innerPages++;
+			max = PageGetMaxOffsetNumber(page);
+			innerTuples += max;
+			nInnerPlaceholder += SpGistPageGetOpaque(page)->nPlaceholder;
+			nInnerRedirect += SpGistPageGetOpaque(page)->nRedirection;
+			for (i = FirstOffsetNumber; i <= max; i++)
+			{
+				SpGistInnerTuple it;
+
+				it = (SpGistInnerTuple) PageGetItem(page,
+													PageGetItemId(page, i));
+				if (it->allTheSame)
+					nAllTheSame++;
+			}
+		}
+
+		if (bufferSize < 0)
+			bufferSize = BufferGetPageSize(buffer)
+				- MAXALIGN(sizeof(SpGistPageOpaqueData))
+				- SizeOfPageHeaderData;
+
+		pageFree = PageGetExactFreeSpace(page);
+
+		usedSpace += bufferSize - pageFree;
+
+		if (pageFree == bufferSize)
+			emptyPages++;
+
+		UnlockReleaseBuffer(buffer);
+	}
+
+	index_close(index, AccessExclusiveLock);
+
+	totalPages--;			   /* discount metapage */
+
+	snprintf(res, sizeof(res),
+			 "totalPages:        %u\n"
+			 "deletedPages:      %u\n"
+			 "innerPages:        %u\n"
+			 "leafPages:         %u\n"
+			 "emptyPages:        %u\n"
+			 "usedSpace:         %.2f kbytes\n"
+			 "freeSpace:         %.2f kbytes\n"
+			 "fillRatio:         %.2f%%\n"
+			 "leafTuples:        " INT64_FORMAT "\n"
+			 "innerTuples:       " INT64_FORMAT "\n"
+			 "innerAllTheSame:   " INT64_FORMAT "\n"
+			 "leafPlaceholders:  " INT64_FORMAT "\n"
+			 "innerPlaceholders: " INT64_FORMAT "\n"
+			 "leafRedirects:     " INT64_FORMAT "\n"
+			 "innerRedirects:    " INT64_FORMAT,
+			 totalPages, deletedPages, innerPages, leafPages, emptyPages,
+			 usedSpace / 1024.0,
+		  	 (((double) bufferSize) * ((double) totalPages) - usedSpace) / 1024,
+	   		 100.0 * (usedSpace / (((double) bufferSize) * ((double) totalPages))),
+			 leafTuples, innerTuples, nAllTheSame,
+			 nLeafPlaceholder, nInnerPlaceholder,
+			 nLeafRedirect, nInnerRedirect);
+
+	PG_RETURN_TEXT_P(CStringGetTextDatum(res));
+#endif
+}
+

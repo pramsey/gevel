@@ -3,7 +3,9 @@ SET client_min_messages = warning;
 RESET client_min_messages;
 CREATE TABLE gevelt ( t box );
 \copy gevelt from 'data/rect.data'
+SELECT center(t) AS p INTO gevelp FROM gevelt;
 CREATE INDEX gist_idx ON gevelt USING gist ( t );
+CREATE INDEX spgist_idx ON gevelp USING spgist ( p );
 --GiST
 SELECT gist_stat('gist_idx');
                 gist_stat                
@@ -88,6 +90,28 @@ SELECT * FROM gist_print('gist_idx') as t(level int, valid bool, a box) where le
      1 | t     | (32511,31225),(25000,19942)
 (28 rows)
 
+--SPGiST
+SELECT spgist_stat('spgist_idx');
+           spgist_stat            
+----------------------------------
+ totalPages:        21           +
+ deletedPages:      0            +
+ innerPages:        3            +
+ leafPages:         18           +
+ emptyPages:        1            +
+ usedSpace:         121.27 kbytes+
+ freeSpace:         46.07 kbytes +
+ fillRatio:         72.47%       +
+ leafTuples:        3669         +
+ innerTuples:       20           +
+ innerAllTheSame:   0            +
+ leafPlaceholders:  569          +
+ innerPlaceholders: 0            +
+ leafRedirects:     0            +
+ innerRedirects:    0
+(1 row)
+
+--GIN 
 CREATE TABLE test__int( a int[] );
 \copy test__int from 'data/test__int.data'
 CREATE INDEX gin_idx ON test__int USING gin ( a );

@@ -8,13 +8,20 @@ RESET client_min_messages;
 CREATE TABLE gevelt ( t box );
 \copy gevelt from 'data/rect.data'
 
+SELECT center(t) AS p INTO gevelp FROM gevelt;
+
 CREATE INDEX gist_idx ON gevelt USING gist ( t );
+CREATE INDEX spgist_idx ON gevelp USING spgist ( p );
 
 --GiST
 SELECT gist_stat('gist_idx');
 SELECT gist_tree('gist_idx');
 SELECT * FROM gist_print('gist_idx') as t(level int, valid bool, a box) where level=1;
 
+--SPGiST
+SELECT spgist_stat('spgist_idx');
+
+--GIN 
 CREATE TABLE test__int( a int[] );
 \copy test__int from 'data/test__int.data'
 
