@@ -3,7 +3,12 @@ SET client_min_messages = warning;
 RESET client_min_messages;
 CREATE TABLE gevelt ( t box );
 \copy gevelt from 'data/rect.data'
+SELECT center(t) AS p INTO gevelp FROM gevelt;
 CREATE INDEX gist_idx ON gevelt USING gist ( t );
+CREATE INDEX spgist_idx ON gevelp USING spgist ( p );
+ERROR:  access method "spgist" does not exist
+CREATE INDEX kdspgist_idx ON gevelp USING spgist ( p kd_point_ops);
+ERROR:  access method "spgist" does not exist
 --GiST
 SELECT gist_stat('gist_idx');
                 gist_stat                
@@ -14,8 +19,8 @@ SELECT gist_stat('gist_idx');
  Number of tuples:          3410
  Number of invalid tuples:  0
  Number of leaf tuples:     3378
- Total size of tuples:      142624 bytes
- Total size of leaf tuples: 141232 bytes
+ Total size of tuples:      143740 bytes
+ Total size of leaf tuples: 142344 bytes
  Total size of index:       270336 bytes
  
 (1 row)
@@ -23,8 +28,8 @@ SELECT gist_stat('gist_idx');
 SELECT gist_tree('gist_idx');
                                            gist_tree                                           
 -----------------------------------------------------------------------------------------------
- 0(l:0) blk: 0 numTuple: 32 free: 6768b(17.06%) rightlink:4294967295 (InvalidBlockNumber)
-     1(l:1) blk: 2 numTuple: 278 free: 3700b(54.66%) rightlink:4294967295 (InvalidBlockNumber)
+ 0(l:0) blk: 0 numTuple: 32 free: 6764b(17.11%) rightlink:4294967295 (InvalidBlockNumber)
+     1(l:1) blk: 2 numTuple: 278 free: 2588b(68.28%) rightlink:4294967295 (InvalidBlockNumber)
      2(l:1) blk: 18 numTuple: 109 free: 3352b(58.92%) rightlink:3 (OK)
      3(l:1) blk: 3 numTuple: 98 free: 3836b(52.99%) rightlink:20 (OK)
      4(l:1) blk: 20 numTuple: 114 free: 3132b(61.62%) rightlink:16 (OK)
@@ -96,6 +101,21 @@ SELECT * FROM gist_print('gist_idx') as t(level int, valid bool, a box) where le
      1 | t     | (31179,37276),(24921,25000)
 (32 rows)
 
+--SPGiST
+SELECT spgist_stat('spgist_idx');
+NOTICE:  Function is not working under PgSQL < 9.2
+ spgist_stat 
+-------------
+ ???
+(1 row)
+
+SELECT * FROM spgist_print('kdspgist_idx') as t(tid tid, node_n int, level int, tid_pointer tid, prefix float8, node_label int, leaf_value point);
+NOTICE:  Function is not working under PgSQL < 9.2
+ERROR:  cache lookup failed for type 2779096485
+SELECT * FROM spgist_print('spgist_idx') as t(tid tid, node_n int, level int, tid_pointer tid, prefix point, node_label int, leaf_value point) WHERE level = 1;
+NOTICE:  Function is not working under PgSQL < 9.2
+ERROR:  cache lookup failed for type 2779096485
+--GIN 
 CREATE TABLE test__int( a int[] );
 \copy test__int from 'data/test__int.data'
 CREATE INDEX gin_idx ON test__int USING gin ( a );
@@ -407,6 +427,6 @@ SELECT * FROM gin_stat('gin_idx') as t(value int, nrow int);
    299 |   26
    300 |   13
   1000 |  300
-  1001 | 3741
+  1001 | 3834
 (303 rows)
 
