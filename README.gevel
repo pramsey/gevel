@@ -2,12 +2,12 @@ Gevel contrib module provides several functions useful for analyzing GiST and GI
 
 [Online version] of this document (http://www.sai.msu.su/~megera/oddmuse/index.cgi/Gevel)
 
-Caution: This module was designed for advanced users of GIN and GiST indices !
+Caution: This module was designed for advanced users of GIN, GiST and SP-GiST indices !
 
 Authors
 
     * Oleg Bartunov <oleg@sai.msu.su>, Moscow, Moscow University, Russia
-    * Teodor Sigaev <teodor@sigaev.ru>, Moscow, Delta-Soft Ltd.,Russia
+    * Teodor Sigaev <teodor@sigaev.ru>, Moscow, Moscow University, Russia
 
 License
 
@@ -122,6 +122,27 @@ regression=# select gist_tree('pix');
      1 | t     | (31179,50040),(28113,25556)
      1 | t     | (28048,49694),(25000,25000)
 (29 rows)
+
+    * spgist_stat(INDEXNAME) - show some statistics about SP-GiST tree
+ 
+# SELECT spgist_stat('spgist_idx');
+           spgist_stat            
+----------------------------------
+ totalPages:        21           +
+ deletedPages:      0            +
+ innerPages:        3            +
+ leafPages:         18           +
+ emptyPages:        1            +
+ usedSpace:         121.27 kbytes+
+ freeSpace:         46.07 kbytes +
+ fillRatio:         72.47%       +
+ leafTuples:        3669         +
+ innerTuples:       20           +
+ innerAllTheSame:   0            +
+ leafPlaceholders:  569          +
+ innerPlaceholders: 0            +
+ leafRedirects:     0            +
+ innerRedirects:    0
 
    * gin_stat(INDEXNAME) prints estimated counts for each indexed values
 	 Note: since 8.4 gin_stat function has gin_stat(INDEXNAME, COLNUMBER) 
