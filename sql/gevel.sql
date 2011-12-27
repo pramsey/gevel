@@ -12,6 +12,7 @@ SELECT center(t) AS p INTO gevelp FROM gevelt;
 
 CREATE INDEX gist_idx ON gevelt USING gist ( t );
 CREATE INDEX spgist_idx ON gevelp USING spgist ( p );
+CREATE INDEX kdspgist_idx ON gevelp USING spgist ( p kd_point_ops);
 
 --GiST
 SELECT gist_stat('gist_idx');
@@ -20,6 +21,8 @@ SELECT * FROM gist_print('gist_idx') as t(level int, valid bool, a box) where le
 
 --SPGiST
 SELECT spgist_stat('spgist_idx');
+SELECT * FROM spgist_print('kdspgist_idx') as t(tid tid, node_n int, level int, tid_pointer tid, prefix float8, node_label int, leaf_value point);
+SELECT * FROM spgist_print('spgist_idx') as t(tid tid, node_n int, level int, tid_pointer tid, prefix point, node_label int, leaf_value point) WHERE level = 1;
 
 --GIN 
 CREATE TABLE test__int( a int[] );

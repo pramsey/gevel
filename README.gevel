@@ -144,6 +144,34 @@ regression=# select gist_tree('pix');
  leafRedirects:     0            +
  innerRedirects:    0
 
+    * spgist_print(INDEXNAME) - prints objects stored in GiST tree, 
+     works only if objects in index have textual representation 
+     (type_out functions should be implemented for given object type).
+	 Note 1. in example below we used quad_point_ops which uses point
+		for leaf and prefix value, but doesn't use node_label at all.
+		Use type  'int' as dummy type for prefix or/and node_label.
+	 Note 2
+		quad_point_ops: prefix point, node_label int,  leaf_value point
+		kd_point_ops:   prefix float, node_label int,  leaf_value point
+		text_ops:       prefix text,  node_label char, leaf_value text
+
+# SELECT * FROM spgist_print('spgist_idx') as t
+		(
+			tid tid, 
+			node_n int, 
+			level int, 
+			tid_pointer tid, 
+			prefix point, 
+			node_label int, 
+			leaf_value point
+		) where level = 1;
+  tid  | node_n | level | tid_pointer |               prefix                | node_label | leaf_value 
+-------+--------+-------+-------------+-------------------------------------+------------+------------
+ (1,1) |      0 |     1 | (5,4)       | (24530.2070484581,23595.7092511013) |            | 
+ (1,1) |      1 |     1 | (5,3)       | (24530.2070484581,23595.7092511013) |            | 
+ (1,1) |      2 |     1 | (5,2)       | (24530.2070484581,23595.7092511013) |            | 
+ (1,1) |      3 |     1 | (5,1)       | (24530.2070484581,23595.7092511013) |            | 
+
    * gin_stat(INDEXNAME) prints estimated counts for each indexed values
 	 Note: since 8.4 gin_stat function has gin_stat(INDEXNAME, COLNUMBER) 
 	 prototype, single-argument function will return result for a first

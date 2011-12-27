@@ -49,5 +49,11 @@ create or replace function spgist_stat(text)
         language C
         with (isstrict); 
 
+create or replace function spgist_print(text)
+        returns setof record
+        as 'MODULE_PATHNAME'
+        language C
+        with (isstrict); 
+
 
 END;
