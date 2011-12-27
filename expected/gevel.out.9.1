@@ -3,7 +3,12 @@ SET client_min_messages = warning;
 RESET client_min_messages;
 CREATE TABLE gevelt ( t box );
 \copy gevelt from 'data/rect.data'
+SELECT center(t) AS p INTO gevelp FROM gevelt;
 CREATE INDEX gist_idx ON gevelt USING gist ( t );
+CREATE INDEX spgist_idx ON gevelp USING spgist ( p );
+ERROR:  access method "spgist" does not exist
+CREATE INDEX kdspgist_idx ON gevelp USING spgist ( p kd_point_ops);
+ERROR:  access method "spgist" does not exist
 --GiST
 SELECT gist_stat('gist_idx');
                 gist_stat                
@@ -96,6 +101,21 @@ SELECT * FROM gist_print('gist_idx') as t(level int, valid bool, a box) where le
      1 | t     | (31179,37276),(24921,25000)
 (32 rows)
 
+--SPGiST
+SELECT spgist_stat('spgist_idx');
+NOTICE:  Function is not working under PgSQL < 9.2
+ spgist_stat 
+-------------
+ ???
+(1 row)
+
+SELECT * FROM spgist_print('kdspgist_idx') as t(tid tid, node_n int, level int, tid_pointer tid, prefix float8, node_label int, leaf_value point);
+NOTICE:  Function is not working under PgSQL < 9.2
+ERROR:  cache lookup failed for type 2779096485
+SELECT * FROM spgist_print('spgist_idx') as t(tid tid, node_n int, level int, tid_pointer tid, prefix point, node_label int, leaf_value point) WHERE level = 1;
+NOTICE:  Function is not working under PgSQL < 9.2
+ERROR:  cache lookup failed for type 2779096485
+--GIN 
 CREATE TABLE test__int( a int[] );
 \copy test__int from 'data/test__int.data'
 CREATE INDEX gin_idx ON test__int USING gin ( a );
