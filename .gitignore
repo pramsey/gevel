@@ -1,0 +1,11 @@
+.gitignore
+*.swp
+*.o
+*.a
+*.d
+*.orig
+*.rej
+temp
+diffs
+etc
+results
