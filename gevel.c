@@ -883,7 +883,7 @@ spgist_stat(PG_FUNCTION_ARGS)
 
 	totalPages = RelationGetNumberOfBlocks(index);
 
-	for (blkno = SPGIST_HEAD_BLKNO; blkno < totalPages; blkno++)
+	for (blkno = SPGIST_ROOT_BLKNO; blkno < totalPages; blkno++)
 	{
 		Buffer	  buffer;
 		Page		page;
@@ -1072,7 +1072,7 @@ spgist_print(PG_FUNCTION_ARGS)
 
 		MemoryContextSwitchTo(oldcontext);
 
-		ItemPointerSet(&ipd, SPGIST_HEAD_BLKNO, FirstOffsetNumber);
+		ItemPointerSet(&ipd, SPGIST_ROOT_BLKNO, FirstOffsetNumber);
 		prst->stack = NIL;
 		pushSPGistPrint(funcctx, prst, &ipd, 1);
 
