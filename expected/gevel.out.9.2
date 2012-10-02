@@ -97,13 +97,13 @@ SELECT spgist_stat('spgist_idx');
 ----------------------------------
  totalPages:        21           +
  deletedPages:      0            +
- innerPages:        3            +
- leafPages:         18           +
- emptyPages:        1            +
- usedSpace:         121.27 kbytes+
- freeSpace:         46.07 kbytes +
- fillRatio:         72.47%       +
- leafTuples:        3669         +
+ innerPages:        2            +
+ leafPages:         19           +
+ emptyPages:        0            +
+ usedSpace:         126.70 kbytes+
+ freeSpace:         40.64 kbytes +
+ fillRatio:         75.71%       +
+ leafTuples:        3947         +
  innerTuples:       20           +
  innerAllTheSame:   0            +
  leafPlaceholders:  569          +
@@ -124,13 +124,13 @@ SELECT * FROM spgist_print('kdspgist_idx') as t(tid tid, node_n int, level int, 
  (5,12)   |      0 |     4 | (5,13)      | 36357.5 |            | 
  (5,12)   |      1 |     4 | (14,226)    | 36357.5 |            | 
  (14,226) |        |     5 |             |         |            | (43240,47256.5)
- (5,13)   |      0 |     5 | (2,112)     |   43507 |            | 
+ (5,13)   |      0 |     5 | (3,112)     |   43507 |            | 
  (5,13)   |      1 |     5 | (5,25)      |   43507 |            | 
  (5,25)   |      0 |     6 | (22,116)    |   28862 |            | 
  (5,25)   |      1 |     6 | (22,115)    |   28862 |            | 
  (22,115) |        |     7 |             |         |            | (30902,44532)
  (22,116) |        |     7 |             |         |            | (23048,47416)
- (2,112)  |        |     6 |             |         |            | (35218.5,42124)
+ (3,112)  |        |     6 |             |         |            | (35218.5,42124)
  (5,5)    |      0 |     4 | (5,11)      |   33416 |            | 
  (5,5)    |      1 |     4 | (5,22)      |   33416 |            | 
  (5,22)   |      0 |     5 | (20,225)    |   30991 |            | 
