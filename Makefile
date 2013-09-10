@@ -27,5 +27,5 @@ pg_version.txt:
 	then \
 		cp $(top_srcdir)/$(subdir)/expected/gevel.out.`cat pg_version.txt` expected/gevel.out ; \
 	else \
-		cp cp $(top_srcdir)/$(subdir)/expected/gevel.out.st expected/gevel.out ; \
+		cp $(top_srcdir)/$(subdir)/expected/gevel.out.st expected/gevel.out ; \
 	fi
