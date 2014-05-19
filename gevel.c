@@ -1194,13 +1194,13 @@ next:
 			*tid = node->t_tid;
 			prst->dvalues[3] = PointerGetDatum(tid);
 			prst->nulls[3] = ' ';
-			if (prst->state.attPrefixType.attbyval != VOIDOID && innerTuple->prefixSize > 0) {
+			if (prst->state.attPrefixType.attbyval == false && innerTuple->prefixSize > 0) {
 				prst->dvalues[4]  = datumCopy(SGITDATUM(innerTuple, &prst->state), 
 											prst->state.attPrefixType.attbyval, prst->state.attPrefixType.attlen); 
 				prst->nulls[4] = ' ';
 			} else
 				prst->nulls[4] = 'n';
-			if (prst->state.attLabelType.attbyval != VOIDOID && !IndexTupleHasNulls(node)) {
+			if (prst->state.attLabelType.attbyval == false && !IndexTupleHasNulls(node)) {
 				prst->dvalues[5]  = datumCopy(SGNTDATUM(node, &prst->state), 
 											prst->state.attLabelType.attbyval, prst->state.attLabelType.attlen); 
 				prst->nulls[5] = ' ';

@@ -25,7 +25,7 @@ pg_version.txt:
 	echo PG_MAJORVERSION | $(CPP) -undef -x c -w  -P $(CPPFLAGS) -include pg_config.h -o - - |  grep -v '^$$' | sed -e 's/"//g' > $@
 	if [ -f expected/gevel.out.`cat pg_version.txt` ] ; \
 	then \
-		cp expected/gevel.out.`cat pg_version.txt` expected/gevel.out ; \
+		cp $(top_srcdir)/$(subdir)/expected/gevel.out.`cat pg_version.txt` expected/gevel.out ; \
 	else \
-		cp expected/gevel.out.st expected/gevel.out ; \
+		cp $(top_srcdir)/$(subdir)/expected/gevel.out.st expected/gevel.out ; \
 	fi
