@@ -195,3 +195,28 @@ regression=# select gist_tree('pix');
 				 790
 (1 row)
 
+   * text gin_statpage(INDEXNAME)
+	 Prints various stat about index internals.
+
+# select gin_statpage('gin_idx');
+         gin_statpage         
+------------------------------
+ totalPages:            32   +
+ dataPages:             1    +
+ dataInnerPages:        0    +
+ dataLeafPages:         1    +
+ dataInnerFreeSpace:    0    +
+ dataLeafFreeSpace:     4454 +
+ dataInnerTuplesCount:  0    +
+ dataLeafIptrsCount:    3600 +
+ entryPages:            31   +
+ entryInnerPages:       21   +
+ entryLeafPages:        10   +
+ entryInnerFreeSpace:   15160+
+ entryLeafFreeSpace:    32788+
+ entryInnerTuplesCount: 7810 +
+ entryLeafTuplesCount:  305  +
+ entryPostingSize:      42122+
+ entryPostingCount:     96759+
+ entryAttrSize:         64924+
+

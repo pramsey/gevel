@@ -695,8 +695,11 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 	if ( GinIsPostingTree(itup) ) {
 		BlockNumber	rootblkno = GinGetPostingTree(itup);
 #if PG_VERSION_NUM >= 90400
-		GinBtreeData	btree, *gdi = &btree;
+		GinBtreeData	btree;
 		GinBtreeStack	*stack;
+		ItemPointerData	minItem;
+		int				nlist;
+		ItemPointer		list;
 #else
 		GinPostingTreeScan *gdi;
 		Buffer	 	entrybuffer;		  
@@ -706,9 +709,11 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 
 		LockBuffer(st->buffer, GIN_UNLOCK);
 #if PG_VERSION_NUM >= 90400
-		ginPrepareDataScan(gdi, st->index, rootblkno);
-		stack = ginScanBeginPostingTree(gdi, st->index, rootblkno);
+		stack = ginScanBeginPostingTree(&btree, st->index, rootblkno);
 		page = BufferGetPage(stack->buffer);
+		ItemPointerSetMin(&minItem);
+		list = GinDataLeafPageGetItems(page, &nlist, minItem);
+		pfree(list);
 		predictNumber = stack->predictNumber;
 #elif PG_VERSION_NUM >= 90100
 		gdi = ginPrepareScanPostingTree(st->index, rootblkno, TRUE);
@@ -729,6 +734,7 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 		freeGinBtreeStack(gdi->stack);
 		pfree(gdi);
 #else
+		LockBuffer(stack->buffer, GIN_UNLOCK);
 		freeGinBtreeStack(stack);
 #endif
 	} else {
@@ -830,7 +836,7 @@ gin_count_estimate(PG_FUNCTION_ARGS) {
 
 #if PG_VERSION_NUM >= 90100
 #if PG_VERSION_NUM >= 90400
-	scan = index_beginscan_bitmap(index, GetTransactionSnapshot(), 1);
+	scan = index_beginscan_bitmap(index, SnapshotSelf, 1);
 #else
 	scan = index_beginscan_bitmap(index, SnapshotNow, 1);
 #endif
@@ -1224,6 +1230,175 @@ next:
 	result = TupleGetDatum(funcctx->slot, htuple);
 
 	SRF_RETURN_NEXT(funcctx, result);
+#endif
+}
+
+
+PG_FUNCTION_INFO_V1(gin_statpage);
+Datum gin_statpage(PG_FUNCTION_ARGS);
+Datum
+gin_statpage(PG_FUNCTION_ARGS)
+{
+#if PG_VERSION_NUM < 90400
+	elog(NOTICE, "Function is not working under PgSQL < 9.4");
+
+	PG_RETURN_TEXT_P(CStringGetTextDatum("???"));
+#else
+	text	   *name = PG_GETARG_TEXT_P(0);
+	RangeVar   *relvar;
+	Relation	index;
+	BlockNumber blkno;
+	char		res[1024];
+	uint32		totalPages,
+				entryPages = 0,
+				dataPages = 0,
+				dataInnerPages = 0,
+				dataLeafPages = 0,
+				entryInnerPages = 0,
+				entryLeafPages = 0
+				;
+	uint64		dataInnerFreeSpace = 0,
+				dataLeafFreeSpace = 0,
+				dataInnerTuplesCount = 0,
+				dataLeafIptrsCount = 0,
+				entryInnerFreeSpace = 0,
+				entryLeafFreeSpace = 0,
+				entryInnerTuplesCount = 0,
+				entryLeafTuplesCount = 0,
+				entryPostingSize = 0,
+				entryPostingCount = 0,
+				entryAttrSize = 0
+				;
+
+	relvar = makeRangeVarFromNameList(textToQualifiedNameList(name));
+	index = relation_openrv(relvar, AccessExclusiveLock);
+
+	if (index->rd_rel->relkind != RELKIND_INDEX ||
+			index->rd_rel->relam != GIN_AM_OID)
+		elog(ERROR, "relation \"%s\" is not an SPGiST index",
+			 RelationGetRelationName(index));
+
+	totalPages = RelationGetNumberOfBlocks(index);
+
+	for (blkno = GIN_ROOT_BLKNO; blkno < totalPages; blkno++)
+	{
+		Buffer		buffer;
+		Page		page;
+		PageHeader	header;
+
+		buffer = ReadBuffer(index, blkno);
+		LockBuffer(buffer, BUFFER_LOCK_SHARE);
+
+		page = BufferGetPage(buffer);
+		header = (PageHeader)page;
+
+		if (GinPageIsData(page))
+		{
+			dataPages++;
+			if (GinPageIsLeaf(page))
+			{
+				ItemPointerData minItem;
+				int nlist;
+
+				dataLeafPages++;
+				dataLeafFreeSpace += header->pd_upper - header->pd_lower;
+				ItemPointerSetMin(&minItem);
+				pfree(GinDataLeafPageGetItems(page, &nlist, minItem));
+				dataLeafIptrsCount += nlist;
+			}
+			else
+			{
+				dataInnerPages++;
+				dataInnerFreeSpace += header->pd_upper - header->pd_lower;
+				dataInnerTuplesCount += GinPageGetOpaque(page)->maxoff;
+			}
+		}
+		else
+		{
+			IndexTuple itup;
+			OffsetNumber i, maxoff;
+
+			maxoff = PageGetMaxOffsetNumber(page);
+
+			entryPages++;
+			if (GinPageIsLeaf(page))
+			{
+				entryLeafPages++;
+				entryLeafFreeSpace += header->pd_upper - header->pd_lower;
+				entryLeafTuplesCount += maxoff;
+			}
+			else
+			{
+				entryInnerPages++;
+				entryInnerFreeSpace += header->pd_upper - header->pd_lower;
+				entryInnerTuplesCount += maxoff;
+			}
+
+			for (i = 1; i <= maxoff; i++)
+			{
+				itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, i));
+
+				if (GinPageIsLeaf(page))
+				{
+					GinPostingList *list = (GinPostingList *)GinGetPosting(itup);
+					entryPostingCount += GinGetNPosting(itup);
+					entryPostingSize += SizeOfGinPostingList(list);
+					entryAttrSize += GinGetPostingOffset(itup) - IndexInfoFindDataOffset((itup)->t_info);
+				}
+				else
+				{
+					entryAttrSize += IndexTupleSize(itup) - IndexInfoFindDataOffset((itup)->t_info);
+				}
+			}
+		}
+
+		UnlockReleaseBuffer(buffer);
+	}
+
+	index_close(index, AccessExclusiveLock);
+	totalPages--;
+
+	snprintf(res, sizeof(res),
+			 "totalPages:            %u\n"
+			 "dataPages:             %u\n"
+			 "dataInnerPages:        %u\n"
+			 "dataLeafPages:         %u\n"
+			 "dataInnerFreeSpace:    " INT64_FORMAT "\n"
+			 "dataLeafFreeSpace:     " INT64_FORMAT "\n"
+			 "dataInnerTuplesCount:  " INT64_FORMAT "\n"
+			 "dataLeafIptrsCount:    " INT64_FORMAT "\n"
+			 "entryPages:            %u\n"
+			 "entryInnerPages:       %u\n"
+			 "entryLeafPages:        %u\n"
+			 "entryInnerFreeSpace:   " INT64_FORMAT "\n"
+			 "entryLeafFreeSpace:    " INT64_FORMAT "\n"
+			 "entryInnerTuplesCount: " INT64_FORMAT "\n"
+			 "entryLeafTuplesCount:  " INT64_FORMAT "\n"
+			 "entryPostingSize:      " INT64_FORMAT "\n"
+			 "entryPostingCount:     " INT64_FORMAT "\n"
+			 "entryAttrSize:         " INT64_FORMAT "\n"
+			 ,
+			 totalPages,
+			 dataPages,
+			 dataInnerPages,
+			 dataLeafPages,
+			 dataInnerFreeSpace,
+			 dataLeafFreeSpace,
+			 dataInnerTuplesCount,
+			 dataLeafIptrsCount,
+			 entryPages,
+			 entryInnerPages,
+			 entryLeafPages,
+			 entryInnerFreeSpace,
+			 entryLeafFreeSpace,
+			 entryInnerTuplesCount,
+			 entryLeafTuplesCount,
+			 entryPostingSize,
+			 entryPostingCount,
+			 entryAttrSize
+			 );
+
+	PG_RETURN_TEXT_P(CStringGetTextDatum(res));
 #endif
 }
 
