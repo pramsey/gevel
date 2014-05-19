@@ -891,7 +891,9 @@ spgist_stat(PG_FUNCTION_ARGS)
 				leafPages = 0,
 				emptyPages = 0,
 				deletedPages = 0;
-	double	  usedSpace = 0.0;
+	double	  usedSpace = 0.0,
+			  usedLeafSpace = 0.0,
+			  usedInnerSpace = 0.0;
 	char		res[1024];
 	int		 bufferSize = -1;
 	int64	   innerTuples = 0,
@@ -968,6 +970,10 @@ spgist_stat(PG_FUNCTION_ARGS)
 		pageFree = PageGetExactFreeSpace(page);
 
 		usedSpace += bufferSize - pageFree;
+		if (SpGistPageIsLeaf(page))
+			usedLeafSpace += bufferSize - pageFree;
+		else
+			usedInnerSpace += bufferSize - pageFree;
 
 		if (pageFree == bufferSize)
 			emptyPages++;
@@ -986,6 +992,8 @@ spgist_stat(PG_FUNCTION_ARGS)
 			 "leafPages:         %u\n"
 			 "emptyPages:        %u\n"
 			 "usedSpace:         %.2f kbytes\n"
+			 "usedInnerSpace:    %.2f kbytes\n"
+			 "usedLeafSpace:     %.2f kbytes\n"
 			 "freeSpace:         %.2f kbytes\n"
 			 "fillRatio:         %.2f%%\n"
 			 "leafTuples:        " INT64_FORMAT "\n"
@@ -997,6 +1005,8 @@ spgist_stat(PG_FUNCTION_ARGS)
 			 "innerRedirects:    " INT64_FORMAT,
 			 totalPages, deletedPages, innerPages, leafPages, emptyPages,
 			 usedSpace / 1024.0,
+			 usedInnerSpace / 1024.0,
+			 usedLeafSpace / 1024.0,
 		  	 (((double) bufferSize) * ((double) totalPages) - usedSpace) / 1024,
 	   		 100.0 * (usedSpace / (((double) bufferSize) * ((double) totalPages))),
 			 leafTuples, innerTuples, nAllTheSame,
