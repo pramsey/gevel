@@ -2,6 +2,9 @@
 
 #include "access/genam.h"
 #include "access/gin.h"
+#if PG_VERSION_NUM >= 90400
+#include "utils/snapmgr.h"
+#endif
 #if PG_VERSION_NUM >= 90100
 #include "access/gin_private.h"
 #endif
@@ -691,25 +694,43 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 		
 	if ( GinIsPostingTree(itup) ) {
 		BlockNumber	rootblkno = GinGetPostingTree(itup);
+#if PG_VERSION_NUM >= 90400
+		GinBtreeData	btree, *gdi = &btree;
+		GinBtreeStack	*stack;
+#else
 		GinPostingTreeScan *gdi;
 		Buffer	 	entrybuffer;		  
+#endif
 		Page        page;
+		uint32		predictNumber;
 
 		LockBuffer(st->buffer, GIN_UNLOCK);
-#if PG_VERSION_NUM >= 90100
+#if PG_VERSION_NUM >= 90400
+		ginPrepareDataScan(gdi, st->index, rootblkno);
+		stack = ginScanBeginPostingTree(gdi, st->index, rootblkno);
+		page = BufferGetPage(stack->buffer);
+		predictNumber = stack->predictNumber;
+#elif PG_VERSION_NUM >= 90100
 		gdi = ginPrepareScanPostingTree(st->index, rootblkno, TRUE);
 		entrybuffer = ginScanBeginPostingTree(gdi);
+		page = BufferGetPage(entrybuffer);
+		predictNumber = gdi->stack->predictNumber;
 #else
 		gdi = prepareScanPostingTree(st->index, rootblkno, TRUE);
 		entrybuffer = scanBeginPostingTree(gdi);
+		page = BufferGetPage(entrybuffer);
+		predictNumber = gdi->stack->predictNumber;
 #endif
 
-		page = BufferGetPage(entrybuffer);
-		st->dvalues[1] = Int32GetDatum( gdi->stack->predictNumber * GinPageGetOpaque(page)->maxoff );
+		st->dvalues[1] = Int32GetDatum( predictNumber * GinPageGetOpaque(page)->maxoff );
 
+#if PG_VERSION_NUM < 90400
 		LockBuffer(entrybuffer, GIN_UNLOCK);
 		freeGinBtreeStack(gdi->stack);
 		pfree(gdi);
+#else
+		freeGinBtreeStack(stack);
+#endif
 	} else {
 		st->dvalues[1] = Int32GetDatum( GinGetNPosting(itup) );
 		LockBuffer(st->buffer, GIN_UNLOCK);
@@ -808,7 +829,11 @@ gin_count_estimate(PG_FUNCTION_ARGS) {
 	fmgr_info( F_TS_MATCH_VQ , &key.sk_func );
 
 #if PG_VERSION_NUM >= 90100
+#if PG_VERSION_NUM >= 90400
+	scan = index_beginscan_bitmap(index, GetTransactionSnapshot(), 1);
+#else
 	scan = index_beginscan_bitmap(index, SnapshotNow, 1);
+#endif
 	index_rescan(scan, &key, 1, NULL, 0);
 
 	count = index_getbitmap(scan, bitmap);
