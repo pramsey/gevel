@@ -42,31 +42,41 @@
 #define PG_NARGS() (fcinfo->nargs)
 #endif
 
+#if PG_VERSION_NUM >= 90600
+#define	ISNULL 		true
+#define ISNOTNULL	false
+#define heap_formtuple	heap_form_tuple
+#else
+#define ISNULL		'n'
+#define ISNOTNULL	' '
+#endif
+
 static char
 *t2c(text* in) {
-        char *out=palloc( VARSIZE(in) );
-        memcpy(out, VARDATA(in), VARSIZE(in)-VARHDRSZ);
-        out[ VARSIZE(in)-VARHDRSZ ] ='\0';
-        return out;
+	char *out=palloc(VARSIZE(in));
+
+	memcpy(out, VARDATA(in), VARSIZE(in)-VARHDRSZ);
+	out[ VARSIZE(in)-VARHDRSZ ] ='\0';
+	return out;
 }
 
 typedef struct {
 	int maxlevel;
 	text	*txt;
 	char	*ptr;
-	int 	len;	
+	int 	len;
 } IdxInfo;
 
 static Relation checkOpenedRelation(Relation r, Oid PgAmOid);
 
 #ifdef PG_MODULE_MAGIC
-/* >= 8.2 */ 
+/* >= 8.2 */
 
 PG_MODULE_MAGIC;
 
 static Relation
 gist_index_open(RangeVar *relvar) {
-#if PG_VERSION_NUM < 90200 
+#if PG_VERSION_NUM < 90200
 	Oid relOid = RangeVarGetRelid(relvar, false);
 #else
 	Oid relOid = RangeVarGetRelid(relvar, NoLock, false);
@@ -79,7 +89,7 @@ gist_index_open(RangeVar *relvar) {
 
 static Relation
 gin_index_open(RangeVar *relvar) {
-#if PG_VERSION_NUM < 90200 
+#if PG_VERSION_NUM < 90200
 	Oid relOid = RangeVarGetRelid(relvar, false);
 #else
 	Oid relOid = RangeVarGetRelid(relvar, NoLock, false);
@@ -130,7 +140,7 @@ gin_index_close(Relation rel) {
 #define SET_VARSIZE(p,l)	VARATT_SIZEP(p)=(l)
 #endif
 
-static Relation 
+static Relation
 checkOpenedRelation(Relation r, Oid PgAmOid) {
 	if ( r->rd_am == NULL )
 		elog(ERROR, "Relation %s.%s is not an index",
@@ -143,7 +153,7 @@ checkOpenedRelation(Relation r, Oid PgAmOid) {
 					get_namespace_name(RelationGetNamespace(r)),
 					RelationGetRelationName(r)
 			);
-	
+
 	return r;
 }
 
@@ -175,13 +185,13 @@ gist_dumptree(Relation r, int level, BlockNumber blk, OffsetNumber coff, IdxInfo
 		info->ptr = ((char*)info->txt)+dist;
 	}
 
-	sprintf(info->ptr, "%s%d(l:%d) blk: %u numTuple: %d free: %db(%.2f%%) rightlink:%u (%s)\n", 
+	sprintf(info->ptr, "%s%d(l:%d) blk: %u numTuple: %d free: %db(%.2f%%) rightlink:%u (%s)\n",
 		pred,
-		coff, 
-		level, 
+		coff,
+		level,
 		blk,
-		(int) maxoff, 
-		(int) PageGetFreeSpace(page),  
+		(int) maxoff,
+		(int) PageGetFreeSpace(page),
 		100.0*(((float)PAGESIZE)-(float)PageGetFreeSpace(page))/((float)PAGESIZE),
 		GistPageGetOpaque(page)->rightlink,
 		( GistPageGetOpaque(page)->rightlink == InvalidBlockNumber ) ? "InvalidBlockNumber" : "OK" );
@@ -214,7 +224,7 @@ gist_tree(PG_FUNCTION_ARGS) {
 	index = gist_index_open(relvar);
 	PG_FREE_IF_COPY(name,0);
 
-	info.maxlevel = ( PG_NARGS() > 1 ) ? PG_GETARG_INT32(1) : -1; 
+	info.maxlevel = ( PG_NARGS() > 1 ) ? PG_GETARG_INT32(1) : -1;
 	info.len=1024;
 	info.txt=(text*)palloc( info.len );
 	info.ptr=((char*)info.txt)+VARHDRSZ;
@@ -312,7 +322,7 @@ gist_stat(PG_FUNCTION_ARGS) {
 	gist_index_close(index);
 	pfree(relname);
 
-	sprintf(ptr, 
+	sprintf(ptr,
 		"Number of levels:          %d\n"
 		"Number of pages:           %d\n"
 		"Number of leaf pages:      %d\n"
@@ -333,7 +343,7 @@ gist_stat(PG_FUNCTION_ARGS) {
 		info.totalsize);
 
 	ptr=strchr(ptr,'\0');
-		 
+
 	SET_VARSIZE(out, ptr-((char*)out));
 	PG_RETURN_POINTER(out);
 }
@@ -351,7 +361,11 @@ typedef struct {
 	RangeVar   *relvar;
 	Relation        index;
 	Datum	*dvalues;
+#if PG_VERSION_NUM >= 90600
+	bool	*nulls;
+#else
 	char	*nulls;
+#endif
 	GPItem	*item;
 } TypeStorage;
 
@@ -360,7 +374,7 @@ openGPPage( FuncCallContext *funcctx, BlockNumber blk ) {
 	GPItem	*nitem;
 	MemoryContext     oldcontext;
 	Relation index = ( (TypeStorage*)(funcctx->user_fctx) )->index;
-	
+
 	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 	nitem = (GPItem*)palloc( sizeof(GPItem) );
 	memset(nitem,0,sizeof(GPItem));
@@ -369,22 +383,22 @@ openGPPage( FuncCallContext *funcctx, BlockNumber blk ) {
 	nitem->page = (Page) BufferGetPage(nitem->buffer);
 	nitem->offset=FirstOffsetNumber;
 	nitem->next = ( (TypeStorage*)(funcctx->user_fctx) )->item;
-	nitem->level = ( nitem->next ) ? nitem->next->level+1 : 1; 
+	nitem->level = ( nitem->next ) ? nitem->next->level+1 : 1;
 	( (TypeStorage*)(funcctx->user_fctx) )->item = nitem;
 
 	MemoryContextSwitchTo(oldcontext);
 	return nitem;
-} 
+}
 
 static GPItem*
 closeGPPage( FuncCallContext *funcctx ) {
 	GPItem  *oitem = ( (TypeStorage*)(funcctx->user_fctx) )->item;
 
 	( (TypeStorage*)(funcctx->user_fctx) )->item = oitem->next;
-	
+
 	ReleaseBuffer(oitem->buffer);
 	pfree( oitem );
-	return ( (TypeStorage*)(funcctx->user_fctx) )->item; 
+	return ( (TypeStorage*)(funcctx->user_fctx) )->item;
 }
 
 static void
@@ -421,7 +435,7 @@ setup_firstcall(FuncCallContext  *funcctx, text *name) {
 	}
 
 	st->dvalues = (Datum *) palloc((tupdesc->natts+2) * sizeof(Datum));
-	st->nulls = (char *) palloc((tupdesc->natts+2) * sizeof(char));
+	st->nulls = (char *) palloc((tupdesc->natts+2) * sizeof(*st->nulls));
 
 	funcctx->slot = TupleDescGetSlot(tupdesc);
 	funcctx->attinmeta = TupleDescGetAttInMetadata(tupdesc);
@@ -430,16 +444,16 @@ setup_firstcall(FuncCallContext  *funcctx, text *name) {
 	pfree(relname);
 
 	st->item=openGPPage(funcctx, GIST_ROOT_BLKNO);
-} 
+}
 
-static void 
+static void
 close_call( FuncCallContext  *funcctx ) {
 	TypeStorage *st = (TypeStorage*)(funcctx->user_fctx);
-	
-	while( st->item && closeGPPage(funcctx) );
-	
-	pfree( st->dvalues );
-	pfree( st->nulls );
+
+	while(st->item && closeGPPage(funcctx));
+
+	pfree(st->dvalues);
+	pfree(st->nulls);
 
 	gist_index_close(st->index);
 }
@@ -464,7 +478,7 @@ gist_print(PG_FUNCTION_ARGS) {
 		PG_FREE_IF_COPY(name,0);
 	}
 
-	funcctx = SRF_PERCALL_SETUP();	
+	funcctx = SRF_PERCALL_SETUP();
 	st = (TypeStorage*)(funcctx->user_fctx);
 
 	if ( !st->item ) {
@@ -476,23 +490,23 @@ gist_print(PG_FUNCTION_ARGS) {
 		if ( ! closeGPPage(funcctx) ) {
 			close_call(funcctx);
 			SRF_RETURN_DONE(funcctx);
-		} 
+		}
 	}
 
 	iid = PageGetItemId( st->item->page, st->item->offset );
 	ituple = (IndexTuple) PageGetItem(st->item->page, iid);
 
 	st->dvalues[0] = Int32GetDatum( st->item->level );
-	st->nulls[0] = ' ';
+	st->nulls[0] = ISNOTNULL;
 	st->dvalues[1] = BoolGetDatum( (!GistPageIsLeaf(st->item->page) && GistTupleIsInvalid(ituple)) ? false : true );
-	st->nulls[1] = ' ';
+	st->nulls[1] = ISNOTNULL;
 	for(i=2; i<funcctx->attinmeta->tupdesc->natts; i++) {
 		if ( !GistPageIsLeaf(st->item->page) && GistTupleIsInvalid(ituple) ) {
 			st->dvalues[i] = (Datum)0;
-			st->nulls[i] = 'n';
+			st->nulls[i] = ISNULL;
 		} else {
-			st->dvalues[i] = index_getattr(ituple, i-1, st->index->rd_att, &isnull); 
-			st->nulls[i] = ( isnull ) ? 'n' : ' ';
+			st->dvalues[i] = index_getattr(ituple, i-1, st->index->rd_att, &isnull);
+			st->nulls[i] = ( isnull ) ? ISNULL : ISNOTNULL;
 		}
 	}
 
@@ -529,7 +543,7 @@ moveRightIfItNeeded( GinStatState *st )
 		/*
 		* We scaned the whole page, so we should take right page
 		*/
-		BlockNumber blkno = GinPageGetOpaque(page)->rightlink;               
+		BlockNumber blkno = GinPageGetOpaque(page)->rightlink;
 
 		if ( GinPageRightMost(page) )
 			return false;  /* no more page */
@@ -544,13 +558,13 @@ moveRightIfItNeeded( GinStatState *st )
 }
 
 /*
- * Refinds a previois position, at returns it has correctly 
+ * Refinds a previois position, at returns it has correctly
  * set offset and buffer is locked
  */
 static bool
 refindPosition(GinStatState *st)
 {
-	Page	page;        
+	Page	page;
 
 	/* find left if needed (it causes only for first search) */
 	for (;;) {
@@ -648,13 +662,13 @@ gin_setup_firstcall(FuncCallContext  *funcctx, text *name, int attnum) {
 	funcctx->user_fctx = (void*)st;
 
 	tupdesc = CreateTemplateTupleDesc(2, false);
-	TupleDescInitEntry(tupdesc, 1, "value", 
-			st->index->rd_att->attrs[st->attnum]->atttypid, 
+	TupleDescInitEntry(tupdesc, 1, "value",
+			st->index->rd_att->attrs[st->attnum]->atttypid,
 			st->index->rd_att->attrs[st->attnum]->atttypmod,
 			st->index->rd_att->attrs[st->attnum]->attndims);
 	TupleDescInitEntry(tupdesc, 2, "nrow", INT4OID, -1, 0);
 
-	memset( st->nulls, ' ', 2*sizeof(char) );
+	memset( st->nulls, ISNOTNULL, 2*sizeof(*st->nulls) );
 
 	funcctx->slot = TupleDescGetSlot(tupdesc);
 	funcctx->attinmeta = TupleDescGetAttInMetadata(tupdesc);
@@ -689,9 +703,9 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 	st->dvalues[0] = st->curval;
 #if PG_VERSION_NUM >= 90100
 	/* do no distiguish various null category */
-	st->nulls[0] = (st->category == GIN_CAT_NORM_KEY) ? ' ' : 'n';
+	st->nulls[0] = (st->category == GIN_CAT_NORM_KEY) ? ISNOTNULL : ISNULL;
 #endif
-		
+
 	if ( GinIsPostingTree(itup) ) {
 		BlockNumber	rootblkno = GinGetPostingTree(itup);
 #if PG_VERSION_NUM >= 90400
@@ -702,7 +716,7 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 		ItemPointer		list;
 #else
 		GinPostingTreeScan *gdi;
-		Buffer	 	entrybuffer;		  
+		Buffer	 	entrybuffer;
 #endif
 		Page        page;
 		uint32		predictNumber;
@@ -761,7 +775,7 @@ gin_stat(PG_FUNCTION_ARGS) {
 		PG_FREE_IF_COPY(name,0);
 	}
 
-	funcctx = SRF_PERCALL_SETUP();	
+	funcctx = SRF_PERCALL_SETUP();
 	st = (GinStatState*)(funcctx->user_fctx);
 
 	if ( refindPosition(st) == false ) {
@@ -773,8 +787,8 @@ gin_stat(PG_FUNCTION_ARGS) {
 
 	for(;;) {
 		st->offset++;
-	
-		if (moveRightIfItNeeded(st)==false) { 
+
+		if (moveRightIfItNeeded(st)==false) {
 			UnlockReleaseBuffer( st->buffer );
 			gin_index_close(st->index);
 
@@ -782,7 +796,7 @@ gin_stat(PG_FUNCTION_ARGS) {
 		}
 
 		page = BufferGetPage(st->buffer);
-		ituple = (IndexTuple) PageGetItem(page, PageGetItemId(page, st->offset)); 
+		ituple = (IndexTuple) PageGetItem(page, PageGetItemId(page, st->offset));
 
 #if PG_VERSION_NUM >= 80400
 		if (st->attnum + 1 == gintuple_get_attrnum(&st->ginstate, ituple))
@@ -791,7 +805,7 @@ gin_stat(PG_FUNCTION_ARGS) {
 	}
 
 	processTuple( funcctx,  st, ituple );
-	
+
 	htuple = heap_formtuple(funcctx->attinmeta->tupdesc, st->dvalues, st->nulls);
 	result = TupleGetDatum(funcctx->slot, htuple);
 
@@ -1044,7 +1058,7 @@ pushSPGistPrint(FuncCallContext *funcctx, SPGistPrint *prst, ItemPointer ip, int
 	e->iptr = *ip;
 	e->nlabel = 0;
 	e->level = level;
-	prst->stack = lcons(e, prst->stack); 
+	prst->stack = lcons(e, prst->stack);
 
 	MemoryContextSwitchTo(oldcontext);
 }
@@ -1099,11 +1113,11 @@ spgist_print(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, 2, "node", INT4OID, -1, 0);
 		TupleDescInitEntry(tupdesc, 3, "level", INT4OID, -1, 0);
 		TupleDescInitEntry(tupdesc, 4, "tid_pointer", TIDOID, -1, 0);
-		TupleDescInitEntry(tupdesc, 5, "prefix", 
+		TupleDescInitEntry(tupdesc, 5, "prefix",
 				(prst->state.attPrefixType.type == VOIDOID) ? INT4OID : prst->state.attPrefixType.type, -1, 0);
-		TupleDescInitEntry(tupdesc, 6, "label", 
+		TupleDescInitEntry(tupdesc, 6, "label",
 				(prst->state.attLabelType.type == VOIDOID) ? INT4OID : prst->state.attLabelType.type, -1, 0);
-		TupleDescInitEntry(tupdesc, 7, "leaf", 
+		TupleDescInitEntry(tupdesc, 7, "leaf",
 				(prst->state.attType.type == VOIDOID) ? INT4OID : prst->state.attType.type, -1, 0);
 
 		funcctx->slot = TupleDescGetSlot(tupdesc);
@@ -1120,7 +1134,7 @@ spgist_print(PG_FUNCTION_ARGS)
 		PG_FREE_IF_COPY(name,0);
 	}
 
-	funcctx = SRF_PERCALL_SETUP();	
+	funcctx = SRF_PERCALL_SETUP();
 	prst = (SPGistPrint*)(funcctx->user_fctx);
 
 next:
@@ -1170,16 +1184,16 @@ next:
 				tid = palloc(sizeof(ItemPointerData));
 				*tid = s->iptr;
 				prst->dvalues[0] = PointerGetDatum(tid);
-				prst->nulls[0] = ' ';
-				prst->nulls[1] = 'n';
-				prst->dvalues[2]  = s->level; 
-				prst->nulls[2] = ' ';
-				prst->nulls[3] = 'n';
-				prst->nulls[4] = 'n';
-				prst->nulls[5] = 'n';
-				prst->dvalues[6]  = datumCopy(SGLTDATUM(leafTuple, &prst->state), 
-											prst->state.attType.attbyval, prst->state.attType.attlen); 
-				prst->nulls[6] = ' ';
+				prst->nulls[0] = ISNOTNULL;
+				prst->nulls[1] = ISNULL;
+				prst->dvalues[2]  = s->level;
+				prst->nulls[2] = ISNOTNULL;
+				prst->nulls[3] = ISNULL;
+				prst->nulls[4] = ISNULL;
+				prst->nulls[5] = ISNULL;
+				prst->dvalues[6]  = datumCopy(SGLTDATUM(leafTuple, &prst->state),
+											prst->state.attType.attbyval, prst->state.attType.attlen);
+				prst->nulls[6] = ISNOTNULL;
 		} else {
 			SpGistInnerTuple	innerTuple = (SpGistInnerTuple)dtuple;
 			int 				i;
@@ -1201,28 +1215,28 @@ next:
 			tid = palloc(sizeof(ItemPointerData));
 			*tid = s->iptr;
 			prst->dvalues[0] = PointerGetDatum(tid);
-			prst->nulls[0] = ' ';
+			prst->nulls[0] = ISNOTNULL;
 			prst->dvalues[1] = Int32GetDatum(s->nlabel);
-			prst->nulls[1] = ' ';
-			prst->dvalues[2]  = s->level; 
-			prst->nulls[2] = ' ';
+			prst->nulls[1] = ISNOTNULL;
+			prst->dvalues[2]  = s->level;
+			prst->nulls[2] = ISNOTNULL;
 			tid = palloc(sizeof(ItemPointerData));
 			*tid = node->t_tid;
 			prst->dvalues[3] = PointerGetDatum(tid);
-			prst->nulls[3] = ' ';
+			prst->nulls[3] = ISNOTNULL;
 			if (innerTuple->prefixSize > 0) {
-				prst->dvalues[4]  = datumCopy(SGITDATUM(innerTuple, &prst->state), 
-											prst->state.attPrefixType.attbyval, prst->state.attPrefixType.attlen); 
-				prst->nulls[4] = ' ';
+				prst->dvalues[4]  = datumCopy(SGITDATUM(innerTuple, &prst->state),
+											prst->state.attPrefixType.attbyval, prst->state.attPrefixType.attlen);
+				prst->nulls[4] = ISNOTNULL;
 			} else
-				prst->nulls[4] = 'n';
+				prst->nulls[4] = ISNULL;
 			if (!IndexTupleHasNulls(node)) {
-				prst->dvalues[5]  = datumCopy(SGNTDATUM(node, &prst->state), 
-											prst->state.attLabelType.attbyval, prst->state.attLabelType.attlen); 
-				prst->nulls[5] = ' ';
+				prst->dvalues[5]  = datumCopy(SGNTDATUM(node, &prst->state),
+											prst->state.attLabelType.attbyval, prst->state.attLabelType.attlen);
+				prst->nulls[5] = ISNOTNULL;
 			} else
-				prst->nulls[5] = 'n';
-			prst->nulls[6] = 'n';
+				prst->nulls[5] = ISNULL;
+			prst->nulls[6] = ISNULL;
 
 			pushSPGistPrint(funcctx, prst, &node->t_tid, s->level + 1);
 			s->nlabel = i + 1;
