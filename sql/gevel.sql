@@ -21,8 +21,8 @@ SELECT * FROM gist_print('gist_idx') as t(level int, valid bool, a box) where le
 
 --SPGiST
 SELECT spgist_stat('spgist_idx');
-SELECT * FROM spgist_print('kdspgist_idx') as t(tid tid, node_n int, level int, tid_pointer tid, prefix float8, node_label int, leaf_value point);
-SELECT * FROM spgist_print('spgist_idx') as t(tid tid, node_n int, level int, tid_pointer tid, prefix point, node_label int, leaf_value point) WHERE level = 1;
+SELECT * FROM spgist_print('kdspgist_idx') as t(tid tid, allthesame bool, node_n int, level int, tid_pointer tid, prefix float8, node_label int, leaf_value point);
+SELECT * FROM spgist_print('spgist_idx') as t(tid tid, allthesame bool, node_n int, level int, tid_pointer tid, prefix point, node_label int, leaf_value point) WHERE level = 1;
 
 --GIN 
 CREATE TABLE test__int( a int[] );

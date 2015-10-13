@@ -1042,8 +1042,8 @@ typedef struct SPGistPrintStackElem {
 typedef struct SPGistPrint {
 	SpGistState	state;
 	Relation 	index;
-	Datum		dvalues[7 /* see CreateTemplateTupleDesc call */];
-	char		nulls[7 /* see CreateTemplateTupleDesc call */];
+	Datum		dvalues[8 /* see CreateTemplateTupleDesc call */];
+	char		nulls[8 /* see CreateTemplateTupleDesc call */];
 	List		*stack;
 } SPGistPrint;
 
@@ -1108,16 +1108,17 @@ spgist_print(PG_FUNCTION_ARGS)
 		prst->index = index;
 		initSpGistState(&prst->state, index);
 
-		tupdesc = CreateTemplateTupleDesc(3 /* types */ + 1 /* level */ + 1 /* nlabel */ +  2 /* tids */, false);
+		tupdesc = CreateTemplateTupleDesc(3 /* types */ + 1 /* level */ + 1 /* nlabel */ +  2 /* tids */ + 1, false);
 		TupleDescInitEntry(tupdesc, 1, "tid", TIDOID, -1, 0);
-		TupleDescInitEntry(tupdesc, 2, "node", INT4OID, -1, 0);
-		TupleDescInitEntry(tupdesc, 3, "level", INT4OID, -1, 0);
-		TupleDescInitEntry(tupdesc, 4, "tid_pointer", TIDOID, -1, 0);
-		TupleDescInitEntry(tupdesc, 5, "prefix",
+		TupleDescInitEntry(tupdesc, 2, "allthesame", BOOLOID, -1, 0);
+		TupleDescInitEntry(tupdesc, 3, "node", INT4OID, -1, 0);
+		TupleDescInitEntry(tupdesc, 4, "level", INT4OID, -1, 0);
+		TupleDescInitEntry(tupdesc, 5, "tid_pointer", TIDOID, -1, 0);
+		TupleDescInitEntry(tupdesc, 6, "prefix",
 				(prst->state.attPrefixType.type == VOIDOID) ? INT4OID : prst->state.attPrefixType.type, -1, 0);
-		TupleDescInitEntry(tupdesc, 6, "label",
+		TupleDescInitEntry(tupdesc, 7, "label",
 				(prst->state.attLabelType.type == VOIDOID) ? INT4OID : prst->state.attLabelType.type, -1, 0);
-		TupleDescInitEntry(tupdesc, 7, "leaf",
+		TupleDescInitEntry(tupdesc, 8, "leaf",
 				(prst->state.attType.type == VOIDOID) ? INT4OID : prst->state.attType.type, -1, 0);
 
 		funcctx->slot = TupleDescGetSlot(tupdesc);
@@ -1186,14 +1187,15 @@ next:
 				prst->dvalues[0] = PointerGetDatum(tid);
 				prst->nulls[0] = ISNOTNULL;
 				prst->nulls[1] = ISNULL;
-				prst->dvalues[2]  = s->level;
-				prst->nulls[2] = ISNOTNULL;
-				prst->nulls[3] = ISNULL;
+				prst->nulls[2] = ISNULL;
+				prst->dvalues[3]  = s->level;
+				prst->nulls[3] = ISNOTNULL;
 				prst->nulls[4] = ISNULL;
 				prst->nulls[5] = ISNULL;
-				prst->dvalues[6]  = datumCopy(SGLTDATUM(leafTuple, &prst->state),
+				prst->nulls[6] = ISNULL;
+				prst->dvalues[7]  = datumCopy(SGLTDATUM(leafTuple, &prst->state),
 											prst->state.attType.attbyval, prst->state.attType.attlen);
-				prst->nulls[6] = ISNOTNULL;
+				prst->nulls[7] = ISNOTNULL;
 		} else {
 			SpGistInnerTuple	innerTuple = (SpGistInnerTuple)dtuple;
 			int 				i;
@@ -1216,27 +1218,29 @@ next:
 			*tid = s->iptr;
 			prst->dvalues[0] = PointerGetDatum(tid);
 			prst->nulls[0] = ISNOTNULL;
-			prst->dvalues[1] = Int32GetDatum(s->nlabel);
+			prst->dvalues[1] = innerTuple->allTheSame;
 			prst->nulls[1] = ISNOTNULL;
-			prst->dvalues[2]  = s->level;
+			prst->dvalues[2] = Int32GetDatum(s->nlabel);
 			prst->nulls[2] = ISNOTNULL;
+			prst->dvalues[3]  = s->level;
+			prst->nulls[3] = ISNOTNULL;
 			tid = palloc(sizeof(ItemPointerData));
 			*tid = node->t_tid;
-			prst->dvalues[3] = PointerGetDatum(tid);
-			prst->nulls[3] = ISNOTNULL;
+			prst->dvalues[4] = PointerGetDatum(tid);
+			prst->nulls[5] = ISNOTNULL;
 			if (innerTuple->prefixSize > 0) {
-				prst->dvalues[4]  = datumCopy(SGITDATUM(innerTuple, &prst->state),
+				prst->dvalues[5]  = datumCopy(SGITDATUM(innerTuple, &prst->state),
 											prst->state.attPrefixType.attbyval, prst->state.attPrefixType.attlen);
-				prst->nulls[4] = ISNOTNULL;
-			} else
-				prst->nulls[4] = ISNULL;
-			if (!IndexTupleHasNulls(node)) {
-				prst->dvalues[5]  = datumCopy(SGNTDATUM(node, &prst->state),
-											prst->state.attLabelType.attbyval, prst->state.attLabelType.attlen);
 				prst->nulls[5] = ISNOTNULL;
 			} else
 				prst->nulls[5] = ISNULL;
-			prst->nulls[6] = ISNULL;
+			if (!IndexTupleHasNulls(node)) {
+				prst->dvalues[6]  = datumCopy(SGNTDATUM(node, &prst->state),
+											prst->state.attLabelType.attbyval, prst->state.attLabelType.attlen);
+				prst->nulls[6] = ISNOTNULL;
+			} else
+				prst->nulls[6] = ISNULL;
+			prst->nulls[7] = ISNULL;
 
 			pushSPGistPrint(funcctx, prst, &node->t_tid, s->level + 1);
 			s->nlabel = i + 1;
