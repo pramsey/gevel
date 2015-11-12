@@ -625,7 +625,7 @@ refindPosition(GinStatState *st)
 #endif
 		if ( cmp == 0 )
 		{
-			if ( !st->index->rd_att->attrs[st->attnum]->attbyval )
+			if ( st->curval && !st->index->rd_att->attrs[st->attnum]->attbyval )
 				pfree( (void*) st->curval );
 			return true;
 		}
@@ -683,14 +683,24 @@ gin_setup_firstcall(FuncCallContext  *funcctx, text *name, int attnum) {
 static void
 processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 	MemoryContext     	oldcontext;
-#if PG_VERSION_NUM < 80400
+#if PG_VERSION_NUM >= 90100
+	Datum				key;
+#elif PG_VERSION_NUM < 80400
 	bool				isnull;
 #endif
 
 	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+#if PG_VERSION_NUM >= 90100
+	key = gintuple_get_key(&st->ginstate, itup, &st->category);
+
+	if (st->category != GIN_CAT_NORM_KEY)
+		st->curval = (Datum)0;
+	else
+#endif
 	st->curval = datumCopy(
 #if PG_VERSION_NUM >= 90100
-					gintuple_get_key(&st->ginstate, itup, &st->category),
+					key,
 #elif PG_VERSION_NUM >= 80400
 					gin_index_getattr(&st->ginstate, itup),
 #else
