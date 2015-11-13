@@ -739,19 +739,20 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 		list = GinDataLeafPageGetItems(page, &nlist, minItem);
 		pfree(list);
 		predictNumber = stack->predictNumber;
+		st->dvalues[1] = Int32GetDatum( predictNumber * nlist );
 #elif PG_VERSION_NUM >= 90100
 		gdi = ginPrepareScanPostingTree(st->index, rootblkno, TRUE);
 		entrybuffer = ginScanBeginPostingTree(gdi);
 		page = BufferGetPage(entrybuffer);
 		predictNumber = gdi->stack->predictNumber;
+		st->dvalues[1] = Int32GetDatum( predictNumber * GinPageGetOpaque(page)->maxoff );
 #else
 		gdi = prepareScanPostingTree(st->index, rootblkno, TRUE);
 		entrybuffer = scanBeginPostingTree(gdi);
 		page = BufferGetPage(entrybuffer);
 		predictNumber = gdi->stack->predictNumber;
-#endif
-
 		st->dvalues[1] = Int32GetDatum( predictNumber * GinPageGetOpaque(page)->maxoff );
+#endif
 
 #if PG_VERSION_NUM < 90400
 		LockBuffer(entrybuffer, GIN_UNLOCK);
