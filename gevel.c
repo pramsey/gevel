@@ -18,6 +18,9 @@
 #endif
 #include "access/heapam.h"
 #include "catalog/index.h"
+#if PG_VERSION_NUM >= 90600
+#include <catalog/pg_am.h>
+#endif
 #include "miscadmin.h"
 #include "storage/lmgr.h"
 #include "catalog/namespace.h"
@@ -64,7 +67,7 @@ typedef struct {
 	int maxlevel;
 	text	*txt;
 	char	*ptr;
-	int 	len;
+	int		len;
 } IdxInfo;
 
 static Relation checkOpenedRelation(Relation r, Oid PgAmOid);
@@ -142,7 +145,7 @@ gin_index_close(Relation rel) {
 
 static Relation
 checkOpenedRelation(Relation r, Oid PgAmOid) {
-	if ( r->rd_am == NULL )
+	if ( r->rd_index == NULL )
 		elog(ERROR, "Relation %s.%s is not an index",
 					get_namespace_name(RelationGetNamespace(r)),
 					RelationGetRelationName(r)
