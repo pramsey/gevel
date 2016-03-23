@@ -36,14 +36,14 @@
 #include <access/relscan.h>
 
 
-#define PAGESIZE 	(BLCKSZ - MAXALIGN(sizeof(PageHeaderData) + sizeof(ItemIdData)))
+#define PAGESIZE	(BLCKSZ - MAXALIGN(sizeof(PageHeaderData) + sizeof(ItemIdData)))
 
 #ifndef PG_NARGS
 #define PG_NARGS() (fcinfo->nargs)
 #endif
 
 #if PG_VERSION_NUM >= 90600
-#define	ISNULL 		true
+#define	ISNULL		true
 #define ISNOTNULL	false
 #define heap_formtuple	heap_form_tuple
 #else
@@ -239,12 +239,12 @@ gist_tree(PG_FUNCTION_ARGS) {
 }
 
 typedef struct {
-	int 	level;
-	int	numpages;
-	int 	numleafpages;
-	int 	numtuple;
-	int	numinvalidtuple;
-	int 	numleaftuple;
+	int		level;
+	int		numpages;
+	int		numleafpages;
+	int		numtuple;
+	int		numinvalidtuple;
+	int		numleaftuple;
 	uint64	tuplesize;
 	uint64	leaftuplesize;
 	uint64	totalsize;
@@ -589,14 +589,14 @@ refindPosition(GinStatState *st)
 	}
 
 	for(;;) {
-		int 			cmp;
+		int				cmp;
 #if PG_VERSION_NUM >= 90100
 		GinNullCategory	category;
 #elif PG_VERSION_NUM < 80400
 		bool			isnull = false;
 #endif
 		Datum			datum;
-		IndexTuple 		itup;
+		IndexTuple		itup;
 
 		if (moveRightIfItNeeded(st)==false)
 			return false;
@@ -682,7 +682,7 @@ gin_setup_firstcall(FuncCallContext  *funcctx, text *name, int attnum) {
 
 static void
 processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
-	MemoryContext     	oldcontext;
+	MemoryContext		oldcontext;
 #if PG_VERSION_NUM >= 90100
 	Datum				key;
 #elif PG_VERSION_NUM < 80400
@@ -726,7 +726,7 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 		ItemPointer		list;
 #else
 		GinPostingTreeScan *gdi;
-		Buffer	 	entrybuffer;
+		Buffer			entrybuffer;
 #endif
 		Page        page;
 		uint32		predictNumber;
@@ -828,11 +828,11 @@ Datum gin_count_estimate(PG_FUNCTION_ARGS);
 #if PG_VERSION_NUM >= 80300
 Datum
 gin_count_estimate(PG_FUNCTION_ARGS) {
-	text    		*name=PG_GETARG_TEXT_P(0);
-	Relation 		index;
+	text			*name=PG_GETARG_TEXT_P(0);
+	Relation		index;
 	IndexScanDesc	scan;
 	int64			count = 0;
-	char 			*relname=t2c(name);
+	char			*relname=t2c(name);
 	ScanKeyData		key;
 #if PG_VERSION_NUM >= 80400
 	TIDBitmap		*bitmap = tbm_create(work_mem * 1024L);
@@ -851,8 +851,8 @@ gin_count_estimate(PG_FUNCTION_ARGS) {
 		elog(ERROR, "Column type is not a tsvector");
 	}
 
-	key.sk_flags 	= 0;
-	key.sk_attno 	= 1;
+	key.sk_flags = 0;
+	key.sk_attno = 1;
 	key.sk_strategy	= TSearchStrategyNumber;
 	key.sk_subtype  = 0;
 	key.sk_argument = PG_GETARG_DATUM(1);
@@ -1032,8 +1032,8 @@ spgist_stat(PG_FUNCTION_ARGS)
 			 usedSpace / 1024.0,
 			 usedInnerSpace / 1024.0,
 			 usedLeafSpace / 1024.0,
-		  	 (((double) bufferSize) * ((double) totalPages) - usedSpace) / 1024,
-	   		 100.0 * (usedSpace / (((double) bufferSize) * ((double) totalPages))),
+			 (((double) bufferSize) * ((double) totalPages) - usedSpace) / 1024,
+			 100.0 * (usedSpace / (((double) bufferSize) * ((double) totalPages))),
 			 leafTuples, innerTuples, nAllTheSame,
 			 nLeafPlaceholder, nInnerPlaceholder,
 			 nLeafRedirect, nInnerRedirect);
@@ -1045,14 +1045,14 @@ spgist_stat(PG_FUNCTION_ARGS)
 #if PG_VERSION_NUM >= 90200
 
 typedef struct SPGistPrintStackElem {
-	ItemPointerData 	iptr;
+	ItemPointerData		iptr;
 	int16				nlabel;
 	int					level;
 } SPGistPrintStackElem;
 
 typedef struct SPGistPrint {
 	SpGistState	state;
-	Relation 	index;
+	Relation	index;
 	Datum		dvalues[8 /* see CreateTemplateTupleDesc call */];
 	char		nulls[8 /* see CreateTemplateTupleDesc call */];
 	List		*stack;
@@ -1098,8 +1098,8 @@ spgist_print(PG_FUNCTION_ARGS)
 	MemoryContext			oldcontext;
 
 	if (SRF_IS_FIRSTCALL()) {
-		text    		*name=PG_GETARG_TEXT_P(0);
-		RangeVar   		*relvar;
+		text			*name=PG_GETARG_TEXT_P(0);
+		RangeVar		*relvar;
 		Relation		index;
 		ItemPointerData	ipd;
 		TupleDesc		tupdesc;
@@ -1209,7 +1209,7 @@ next:
 				prst->nulls[7] = ISNOTNULL;
 		} else {
 			SpGistInnerTuple	innerTuple = (SpGistInnerTuple)dtuple;
-			int 				i;
+			int					i;
 			SpGistNodeTuple		node;
 
 			SGITITERATE(innerTuple, i, node) {
