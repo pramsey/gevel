@@ -736,7 +736,11 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 
 		LockBuffer(st->buffer, GIN_UNLOCK);
 #if PG_VERSION_NUM >= 90400
-		stack = ginScanBeginPostingTree(&btree, st->index, rootblkno);
+		stack = ginScanBeginPostingTree(&btree, st->index, rootblkno
+#if PG_VERSION_NUM >= 90600
+										, NULL
+#endif
+										);
 		page = BufferGetPage(stack->buffer);
 		ItemPointerSetMin(&minItem);
 		list = GinDataLeafPageGetItems(page, &nlist, minItem);
