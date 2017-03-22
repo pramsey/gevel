@@ -1304,6 +1304,10 @@ gin_statpage(PG_FUNCTION_ARGS)
 	BlockNumber blkno;
 	char		res[1024];
 	uint32		totalPages,
+#if PG_VERSION_NUM >= 100000
+				deletedPages = 0,
+				emptyDataPages = 0,
+#endif
 				entryPages = 0,
 				dataPages = 0,
 				dataInnerPages = 0,
@@ -1346,19 +1350,35 @@ gin_statpage(PG_FUNCTION_ARGS)
 		page = BufferGetPage(buffer);
 		header = (PageHeader)page;
 
+#if PG_VERSION_NUM >= 100000
+		if (GinPageIsDeleted(page))
+		{
+			deletedPages++;
+		}
+		else
+#endif
 		if (GinPageIsData(page))
 		{
 			dataPages++;
 			if (GinPageIsLeaf(page))
 			{
-				ItemPointerData minItem;
+				ItemPointerData minItem, *ptr;
 				int nlist;
+
 
 				dataLeafPages++;
 				dataLeafFreeSpace += header->pd_upper - header->pd_lower;
 				ItemPointerSetMin(&minItem);
-				pfree(GinDataLeafPageGetItems(page, &nlist, minItem));
-				dataLeafIptrsCount += nlist;
+
+				ptr = GinDataLeafPageGetItems(page, &nlist, minItem);
+
+				if (ptr)
+				{
+					pfree(ptr);
+					dataLeafIptrsCount += nlist;
+				}
+				else
+					emptyDataPages++;
 			}
 			else
 			{
@@ -1414,6 +1434,10 @@ gin_statpage(PG_FUNCTION_ARGS)
 
 	snprintf(res, sizeof(res),
 			 "totalPages:            %u\n"
+#if PG_VERSION_NUM >= 100000
+			 "deletedPages:          %u\n"
+			 "emptyDataPages:        %u\n"
+#endif
 			 "dataPages:             %u\n"
 			 "dataInnerPages:        %u\n"
 			 "dataLeafPages:         %u\n"
@@ -1433,6 +1457,10 @@ gin_statpage(PG_FUNCTION_ARGS)
 			 "entryAttrSize:         " INT64_FORMAT "\n"
 			 ,
 			 totalPages,
+#if PG_VERSION_NUM >= 100000
+			 deletedPages,
+			 emptyDataPages,
+#endif
 			 dataPages,
 			 dataInnerPages,
 			 dataLeafPages,
