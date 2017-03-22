@@ -27,6 +27,10 @@
 #if PG_VERSION_NUM >= 80300
 #include <tsearch/ts_utils.h>
 #endif
+#if PG_VERSION_NUM >= 100000
+#include <utils/regproc.h>
+#include <utils/varlena.h>
+#endif
 #include <utils/tqual.h>
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -842,7 +846,11 @@ gin_count_estimate(PG_FUNCTION_ARGS) {
 	char			*relname=t2c(name);
 	ScanKeyData		key;
 #if PG_VERSION_NUM >= 80400
-	TIDBitmap		*bitmap = tbm_create(work_mem * 1024L);
+	TIDBitmap		*bitmap = tbm_create(work_mem * 1024L
+#if PG_VERSION_NUM >= 100000
+										 , NULL
+#endif
+										 );
 #else
 #define	MAXTIDS		1024
 	ItemPointerData	tids[MAXTIDS];
