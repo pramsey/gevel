@@ -408,6 +408,12 @@ closeGPPage( FuncCallContext *funcctx ) {
 	return ( (TypeStorage*)(funcctx->user_fctx) )->item;
 }
 
+#if PG_VERSION_NUM >= 110000
+#define TS_GET_TYPEVAL(s, i, v)	(s)->index->rd_att->attrs[(i)].v
+#else
+#define TS_GET_TYPEVAL(s, i, v)	(s)->index->rd_att->attrs[(i)]->v
+#endif
+
 static void
 setup_firstcall(FuncCallContext  *funcctx, text *name) {
 	MemoryContext     oldcontext;
@@ -435,14 +441,14 @@ setup_firstcall(FuncCallContext  *funcctx, text *name) {
 			tupdesc,
 			i+3,
 			attname,
-			st->index->rd_att->attrs[i]->atttypid,
-			st->index->rd_att->attrs[i]->atttypmod,
-			st->index->rd_att->attrs[i]->attndims
+			TS_GET_TYPEVAL(st, i, atttypid),
+			TS_GET_TYPEVAL(st, i, atttypmod),
+			TS_GET_TYPEVAL(st, i, attndims)
 		);
 	}
 
 	st->dvalues = (Datum *) palloc((tupdesc->natts+2) * sizeof(Datum));
-	st->nulls = (char *) palloc((tupdesc->natts+2) * sizeof(*st->nulls));
+	st->nulls = palloc((tupdesc->natts+2) * sizeof(*st->nulls));
 
 	funcctx->slot = TupleDescGetSlot(tupdesc);
 	funcctx->attinmeta = TupleDescGetAttInMetadata(tupdesc);
@@ -538,7 +544,11 @@ typedef struct GinStatState {
 	GinNullCategory	category;
 #endif
 	Datum			dvalues[2];
+#if PG_VERSION_NUM >= 110000
+	bool			nulls[2];
+#else
 	char			nulls[2];
+#endif
 } GinStatState;
 
 static bool
@@ -632,7 +642,7 @@ refindPosition(GinStatState *st)
 #endif
 		if ( cmp == 0 )
 		{
-			if ( st->curval && !st->index->rd_att->attrs[st->attnum]->attbyval )
+			if ( st->curval && !TS_GET_TYPEVAL(st, st->attnum, attbyval) )
 				pfree( (void*) st->curval );
 			return true;
 		}
@@ -670,9 +680,9 @@ gin_setup_firstcall(FuncCallContext  *funcctx, text *name, int attnum) {
 
 	tupdesc = CreateTemplateTupleDesc(2, false);
 	TupleDescInitEntry(tupdesc, 1, "value",
-			st->index->rd_att->attrs[st->attnum]->atttypid,
-			st->index->rd_att->attrs[st->attnum]->atttypmod,
-			st->index->rd_att->attrs[st->attnum]->attndims);
+			TS_GET_TYPEVAL(st, st->attnum, atttypid),
+			TS_GET_TYPEVAL(st, st->attnum, atttypmod),
+			TS_GET_TYPEVAL(st, st->attnum, attndims));
 	TupleDescInitEntry(tupdesc, 2, "nrow", INT4OID, -1, 0);
 
 	memset( st->nulls, ISNOTNULL, 2*sizeof(*st->nulls) );
@@ -713,8 +723,8 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 #else
 					index_getattr(itup, FirstOffsetNumber, st->ginstate.tupdesc, &isnull),
 #endif
-					st->index->rd_att->attrs[st->attnum]->attbyval,
-					st->index->rd_att->attrs[st->attnum]->attlen );
+					TS_GET_TYPEVAL(st, st->attnum, attbyval),
+					TS_GET_TYPEVAL(st, st->attnum, attlen));
 	MemoryContextSwitchTo(oldcontext);
 
 	st->dvalues[0] = st->curval;
@@ -1069,7 +1079,11 @@ typedef struct SPGistPrint {
 	SpGistState	state;
 	Relation	index;
 	Datum		dvalues[8 /* see CreateTemplateTupleDesc call */];
-	char		nulls[8 /* see CreateTemplateTupleDesc call */];
+#if PG_VERSION_NUM >= 110000
+	bool			nulls[8];
+#else
+	char			nulls[8];
+#endif
 	List		*stack;
 } SPGistPrint;
 
