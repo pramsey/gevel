@@ -263,8 +263,8 @@ gist_tree(PG_FUNCTION_ARGS) {
 	text	*name=PG_GETARG_TEXT_P(0);
 	char *relname=t2c(name);
 	RangeVar   *relvar;
-	Relation        index;
-	List       *relname_list;
+	Relation		index;
+	List	   *relname_list;
 	IdxInfo	info;
 
 	relname_list = stringToQualifiedNameList(relname, "gist_tree");
@@ -351,8 +351,8 @@ gist_stat(PG_FUNCTION_ARGS) {
 	text	*name=PG_GETARG_TEXT_P(0);
 	char *relname=t2c(name);
 	RangeVar   *relvar;
-	Relation        index;
-	List       *relname_list;
+	Relation		index;
+	List	   *relname_list;
 	IdxStat	info;
 	text *out=(text*)palloc(1024);
 	char *ptr=((char*)out)+VARHDRSZ;
@@ -371,15 +371,15 @@ gist_stat(PG_FUNCTION_ARGS) {
 	pfree(relname);
 
 	sprintf(ptr,
-		"Number of levels:          %d\n"
-		"Number of pages:           %d\n"
-		"Number of leaf pages:      %d\n"
-		"Number of tuples:          %d\n"
+		"Number of levels:		  %d\n"
+		"Number of pages:		   %d\n"
+		"Number of leaf pages:	  %d\n"
+		"Number of tuples:		  %d\n"
 		"Number of invalid tuples:  %d\n"
-		"Number of leaf tuples:     %d\n"
-		"Total size of tuples:      "INT64_FORMAT" bytes\n"
+		"Number of leaf tuples:	 %d\n"
+		"Total size of tuples:	  "INT64_FORMAT" bytes\n"
 		"Total size of leaf tuples: "INT64_FORMAT" bytes\n"
-		"Total size of index:       "INT64_FORMAT" bytes\n",
+		"Total size of index:	   "INT64_FORMAT" bytes\n",
 		info.level+1,
 		info.numpages,
 		info.numleafpages,
@@ -407,7 +407,7 @@ typedef struct GPItem {
 typedef struct {
 	List	*relname_list;
 	RangeVar   *relvar;
-	Relation        index;
+	Relation		index;
 	Datum	*dvalues;
 #if PG_VERSION_NUM >= 90600
 	bool	*nulls;
@@ -420,7 +420,7 @@ typedef struct {
 static GPItem*
 openGPPage( FuncCallContext *funcctx, BlockNumber blk ) {
 	GPItem	*nitem;
-	MemoryContext     oldcontext;
+	MemoryContext	 oldcontext;
 	Relation index = ( (TypeStorage*)(funcctx->user_fctx) )->index;
 
 	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
@@ -457,11 +457,11 @@ closeGPPage( FuncCallContext *funcctx ) {
 
 static void
 setup_firstcall(FuncCallContext  *funcctx, text *name) {
-	MemoryContext     oldcontext;
-	TypeStorage     *st;
+	MemoryContext	 oldcontext;
+	TypeStorage	 *st;
 	char *relname=t2c(name);
-	TupleDesc            tupdesc;
-	char            attname[NAMEDATALEN];
+	TupleDesc			tupdesc;
+	char			attname[NAMEDATALEN];
 	int i;
 
 	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
@@ -524,16 +524,16 @@ Datum	gist_print(PG_FUNCTION_ARGS);
 Datum
 gist_print(PG_FUNCTION_ARGS) {
 	FuncCallContext  *funcctx;
-	TypeStorage     *st;
+	TypeStorage	 *st;
 	Datum result=(Datum)0;
-	ItemId          iid;
-	IndexTuple      ituple;
-	HeapTuple       htuple;
+	ItemId		  iid;
+	IndexTuple	  ituple;
+	HeapTuple	   htuple;
 	int i;
 	bool isnull;
 
 	if (SRF_IS_FIRSTCALL()) {
-		text    *name=PG_GETARG_TEXT_P(0);
+		text	*name=PG_GETARG_TEXT_P(0);
 		funcctx = SRF_FIRSTCALL_INIT();
 		setup_firstcall(funcctx, name);
 		PG_FREE_IF_COPY(name,0);
@@ -709,10 +709,10 @@ refindPosition(GinStatState *st)
 
 static void
 gin_setup_firstcall(FuncCallContext  *funcctx, text *name, int attnum) {
-	MemoryContext     oldcontext;
-	GinStatState     *st;
+	MemoryContext	 oldcontext;
+	GinStatState	 *st;
 	char *relname=t2c(name);
-	TupleDesc            tupdesc;
+	TupleDesc			tupdesc;
 
 	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
@@ -806,7 +806,7 @@ processTuple( FuncCallContext  *funcctx,  GinStatState *st, IndexTuple itup ) {
 		GinPostingTreeScan *gdi;
 		Buffer			entrybuffer;
 #endif
-		Page        page;
+		Page		page;
 		uint32		predictNumber;
 
 		LockBuffer(st->buffer, GIN_UNLOCK);
@@ -855,14 +855,14 @@ Datum	gin_stat(PG_FUNCTION_ARGS);
 Datum
 gin_stat(PG_FUNCTION_ARGS) {
 	FuncCallContext  *funcctx;
-	GinStatState     *st;
+	GinStatState	 *st;
 	Datum result=(Datum)0;
-	IndexTuple      ituple;
-	HeapTuple       htuple;
+	IndexTuple	  ituple;
+	HeapTuple	   htuple;
 	Page page;
 
 	if (SRF_IS_FIRSTCALL()) {
-		text    *name=PG_GETARG_TEXT_P(0);
+		text	*name=PG_GETARG_TEXT_P(0);
 		funcctx = SRF_FIRSTCALL_INIT();
 		gin_setup_firstcall(funcctx, name, (PG_NARGS()==2) ? PG_GETARG_INT32(1) : 0 );
 		PG_FREE_IF_COPY(name,0);
@@ -1101,23 +1101,23 @@ spgist_stat(PG_FUNCTION_ARGS)
 	totalPages--;			   /* discount metapage */
 
 	snprintf(res, sizeof(res),
-			 "totalPages:        %u\n"
-			 "deletedPages:      %u\n"
-			 "innerPages:        %u\n"
-			 "leafPages:         %u\n"
-			 "emptyPages:        %u\n"
-			 "usedSpace:         %.2f kbytes\n"
-			 "usedInnerSpace:    %.2f kbytes\n"
-			 "usedLeafSpace:     %.2f kbytes\n"
-			 "freeSpace:         %.2f kbytes\n"
-			 "fillRatio:         %.2f%%\n"
-			 "leafTuples:        " INT64_FORMAT "\n"
-			 "innerTuples:       " INT64_FORMAT "\n"
+			 "totalPages:		%u\n"
+			 "deletedPages:	  %u\n"
+			 "innerPages:		%u\n"
+			 "leafPages:		 %u\n"
+			 "emptyPages:		%u\n"
+			 "usedSpace:		 %.2f kbytes\n"
+			 "usedInnerSpace:	%.2f kbytes\n"
+			 "usedLeafSpace:	 %.2f kbytes\n"
+			 "freeSpace:		 %.2f kbytes\n"
+			 "fillRatio:		 %.2f%%\n"
+			 "leafTuples:		" INT64_FORMAT "\n"
+			 "innerTuples:	   " INT64_FORMAT "\n"
 			 "innerAllTheSame:   " INT64_FORMAT "\n"
 			 "leafPlaceholders:  " INT64_FORMAT "\n"
 			 "innerPlaceholders: " INT64_FORMAT "\n"
-			 "leafRedirects:     " INT64_FORMAT "\n"
-			 "innerRedirects:    " INT64_FORMAT,
+			 "leafRedirects:	 " INT64_FORMAT "\n"
+			 "innerRedirects:	" INT64_FORMAT,
 			 totalPages, deletedPages, innerPages, leafPages, emptyPages,
 			 usedSpace / 1024.0,
 			 usedInnerSpace / 1024.0,
@@ -1522,28 +1522,28 @@ gin_statpage(PG_FUNCTION_ARGS)
 	totalPages--;
 
 	snprintf(res, sizeof(res),
-			 "totalPages:            %u\n"
+			 "totalPages:			%u\n"
 #if PG_VERSION_NUM >= 100000
-			 "deletedPages:          %u\n"
-			 "emptyDataPages:        %u\n"
+			 "deletedPages:		  %u\n"
+			 "emptyDataPages:		%u\n"
 #endif
-			 "dataPages:             %u\n"
-			 "dataInnerPages:        %u\n"
-			 "dataLeafPages:         %u\n"
-			 "dataInnerFreeSpace:    " INT64_FORMAT "\n"
-			 "dataLeafFreeSpace:     " INT64_FORMAT "\n"
+			 "dataPages:			 %u\n"
+			 "dataInnerPages:		%u\n"
+			 "dataLeafPages:		 %u\n"
+			 "dataInnerFreeSpace:	" INT64_FORMAT "\n"
+			 "dataLeafFreeSpace:	 " INT64_FORMAT "\n"
 			 "dataInnerTuplesCount:  " INT64_FORMAT "\n"
-			 "dataLeafIptrsCount:    " INT64_FORMAT "\n"
-			 "entryPages:            %u\n"
-			 "entryInnerPages:       %u\n"
-			 "entryLeafPages:        %u\n"
+			 "dataLeafIptrsCount:	" INT64_FORMAT "\n"
+			 "entryPages:			%u\n"
+			 "entryInnerPages:	   %u\n"
+			 "entryLeafPages:		%u\n"
 			 "entryInnerFreeSpace:   " INT64_FORMAT "\n"
-			 "entryLeafFreeSpace:    " INT64_FORMAT "\n"
+			 "entryLeafFreeSpace:	" INT64_FORMAT "\n"
 			 "entryInnerTuplesCount: " INT64_FORMAT "\n"
 			 "entryLeafTuplesCount:  " INT64_FORMAT "\n"
-			 "entryPostingSize:      " INT64_FORMAT "\n"
-			 "entryPostingCount:     " INT64_FORMAT "\n"
-			 "entryAttrSize:         " INT64_FORMAT "\n"
+			 "entryPostingSize:	  " INT64_FORMAT "\n"
+			 "entryPostingCount:	 " INT64_FORMAT "\n"
+			 "entryAttrSize:		 " INT64_FORMAT "\n"
 			 ,
 			 totalPages,
 #if PG_VERSION_NUM >= 100000
@@ -1593,9 +1593,9 @@ btree_deep_search(Relation rel, int level,
 	Page			page;
 	IndexTuple		itup;
 	ItemId			iid;
-	OffsetNumber 	i,
+	OffsetNumber	i,
 					maxoff;
-	BlockNumber 	cblk;
+	BlockNumber		cblk;
 	BTPageOpaque	opaque;
 	Buffer buffer =  _bt_getbuf(rel, blk, BT_READ);
 
@@ -1679,8 +1679,8 @@ btree_stat(PG_FUNCTION_ARGS)
 {
 	text		*name=PG_GETARG_TEXT_PP(0);
 	RangeVar	*relvar;
-	Relation    index;
-	List       	*relname_list;
+	Relation	index;
+	List		*relname_list;
 	BtreeIdxInfo btreeIdxInfo;
 
 	Buffer		metabuf;
@@ -1706,17 +1706,17 @@ btree_stat(PG_FUNCTION_ARGS)
 	btree_deep_search(index, 0, rootBlk, &btreeIdxInfo,stat);
 
 	btree_index_close(index);
-	
+
 	sprintf(ptr,
-		"Number of levels:          %d\n"
-		"Number of pages:           %d\n"
-		"Number of leaf pages:      %d\n"
-		"Number of tuples:          %d\n"
+		"Number of levels:		  %d\n"
+		"Number of pages:		   %d\n"
+		"Number of leaf pages:	  %d\n"
+		"Number of tuples:		  %d\n"
 		"Number of invalid tuples:  %d\n"
-		"Number of leaf tuples:     %d\n"
-		"Total size of tuples:      "INT64_FORMAT" bytes\n"
+		"Number of leaf tuples:	 %d\n"
+		"Total size of tuples:	  "INT64_FORMAT" bytes\n"
 		"Total size of leaf tuples: "INT64_FORMAT" bytes\n"
-		"Total size of index:       "INT64_FORMAT" bytes\n",
+		"Total size of index:	   "INT64_FORMAT" bytes\n",
 		btreeIdxInfo.idxStat.level+1,
 		btreeIdxInfo.idxStat.numpages,
 		btreeIdxInfo.idxStat.numleafpages,
@@ -1819,11 +1819,11 @@ btree_setup_firstcall(FuncCallContext  *funcctx, text *name)
 {
 	MemoryContext oldcontext;
 	BtTypeStorage *st;
-	TupleDesc     tupdesc;
+	TupleDesc	 tupdesc;
 	char		  attname[NAMEDATALEN];
-	int 		  i;
+	int			  i;
 	BlockNumber   blk;
-	Buffer 		  buffer;
+	Buffer		  buffer;
 
 	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
@@ -1877,15 +1877,15 @@ Datum
 btree_tree(PG_FUNCTION_ARGS)
 {
 	text			*name=PG_GETARG_TEXT_PP(0);
-	RangeVar   		*relvar;
+	RangeVar		*relvar;
 	Relation		index;
-	List       		*relname_list;
+	List			*relname_list;
 	BtreeIdxInfo btreeIdxInfo;
 	Buffer			metabuf;
 	Page			metapg;
 	BTMetaPageData  *metad;
-	BlockNumber 	rootBlk;
-	
+	BlockNumber		rootBlk;
+
 	/*
 	 *  If we use MAXLEVEL is not used in SELECT btree_tree(INDEXNAME),
 	 *  info.maxlevel set to -1
@@ -1922,7 +1922,7 @@ btree_tree(PG_FUNCTION_ARGS)
  * Print objects stored in btree tuples
  * works only if objects in index have textual representation
  * select * from btree_print(INDEXNAME)
- * 		as t(level int, valid bool, a box) where level =1;
+ *		as t(level int, valid bool, a box) where level =1;
  */
 PG_FUNCTION_INFO_V1(btree_print);
 Datum btree_print(PG_FUNCTION_ARGS);
@@ -1931,17 +1931,17 @@ btree_print(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	BtTypeStorage   *st;
-	ItemId          iid;
-	IndexTuple      ituple;
-	HeapTuple       htuple;
-	int 			i;
-	bool 			isnull;
+	ItemId		  iid;
+	IndexTuple	  ituple;
+	HeapTuple	   htuple;
+	int				i;
+	bool			isnull;
 	BTPageOpaque opaque;
 	Datum result=(Datum)0;
 
 	if (SRF_IS_FIRSTCALL())
 	{
-		text    *name=PG_GETARG_TEXT_PP(0);
+		text	*name=PG_GETARG_TEXT_PP(0);
 		funcctx = SRF_FIRSTCALL_INIT();
 		btree_setup_firstcall(funcctx, name);
 		PG_FREE_IF_COPY(name,0);
@@ -2019,8 +2019,8 @@ brin_stat(PG_FUNCTION_ARGS)
 {
 	text		*name=PG_GETARG_TEXT_PP(0);
 	RangeVar	*relvar;
-	Relation    index;
-	List       	*relname_list;
+	Relation	index;
+	List		*relname_list;
 
 	BlockNumber startBlk;
 	BlockNumber heapNumBlocks;
@@ -2123,9 +2123,9 @@ Datum
 brin_print(PG_FUNCTION_ARGS)
 {
 	text	*name=PG_GETARG_TEXT_PP(0);
-	RangeVar   		*relvar;
+	RangeVar		*relvar;
 	Relation		index;
-	List       		*relname_list;
+	List			*relname_list;
 
 	BlockNumber heapBlk;
 	BlockNumber numBlocks;
