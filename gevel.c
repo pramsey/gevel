@@ -31,7 +31,6 @@
 #include <utils/regproc.h>
 #include <utils/varlena.h>
 #endif
-#include <utils/tqual.h>
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/datum.h"
@@ -41,6 +40,13 @@
 #include <access/heapam.h>
 #include <catalog/pg_type.h>
 #include <access/relscan.h>
+#if PG_VERSION_NUM >= 120000
+#include <access/nbtree.h>
+#include <access/brin.h>
+#include <access/brin_revmap.h>
+#include <access/brin_page.h>
+#include <access/brin_tuple.h>
+#endif
 
 
 #define PAGESIZE	(BLCKSZ - MAXALIGN(sizeof(PageHeaderData) + sizeof(ItemIdData)))
@@ -107,6 +113,27 @@ gin_index_open(RangeVar *relvar) {
 
 #define gin_index_close(r) index_close((r), AccessShareLock)
 
+#if PG_VERSION_NUM >= 120000
+static Relation
+btree_index_open(RangeVar *relvar) {
+	Oid relOid = RangeVarGetRelid(relvar, NoLock, false);
+	return checkOpenedRelation(
+				index_open(relOid, AccessExclusiveLock), BTREE_AM_OID);
+}
+
+#define	btree_index_close(r)	index_close((r), AccessExclusiveLock)
+
+static Relation
+brin_index_open(RangeVar *relvar)
+{
+	Oid relOid = RangeVarGetRelid(relvar, NoLock, false);
+	return checkOpenedRelation(
+				index_open(relOid, AccessExclusiveLock), BRIN_AM_OID);
+}
+
+#define	brin_index_close(r)	index_close((r), AccessExclusiveLock)
+#endif
+
 #else /* <8.2 */
 
 static Relation
@@ -134,6 +161,20 @@ gin_index_open(RangeVar *relvar) {
 static void
 gin_index_close(Relation rel) {
 	UnlockRelation(rel, AccessShareLock);
+	index_close(rel);
+}
+
+static Relation
+btree_index_open(RangeVar *relvar) {
+	Relation rel = index_openrv(relvar);
+
+	LockRelation(rel, AccessExclusiveLock);
+	return checkOpenedRelation(rel, BTREE_AM_OID);
+}
+
+static void
+btree_index_close(Relation rel) {
+	UnlockRelation(rel, AccessExclusiveLock);
 	index_close(rel);
 }
 
@@ -432,7 +473,11 @@ setup_firstcall(FuncCallContext  *funcctx, text *name) {
 	st->index = gist_index_open(st->relvar);
 	funcctx->user_fctx = (void*)st;
 
-	tupdesc = CreateTemplateTupleDesc(st->index->rd_att->natts+2, false);
+#if PG_VERSION_NUM >= 120000
+	tupdesc = CreateTemplateTupleDesc(st->index->rd_att->natts+2);
+#else
+	tupdesc = CreateTemplateTupleDesc(3 /* types */ + 1 /* level */ + 1 /* nlabel */ +  2 /* tids */ + 1, false);
+#endif
 	TupleDescInitEntry(tupdesc, 1, "level", INT4OID, -1, 0);
 	TupleDescInitEntry(tupdesc, 2, "valid", BOOLOID, -1, 0);
 	for (i = 0; i < st->index->rd_att->natts; i++) {
@@ -450,8 +495,11 @@ setup_firstcall(FuncCallContext  *funcctx, text *name) {
 	st->dvalues = (Datum *) palloc((tupdesc->natts+2) * sizeof(Datum));
 	st->nulls = palloc((tupdesc->natts+2) * sizeof(*st->nulls));
 
-	funcctx->slot = TupleDescGetSlot(tupdesc);
+#if PG_VERSION_NUM >= 120000
 	funcctx->attinmeta = TupleDescGetAttInMetadata(tupdesc);
+#else
+	funcctx->slot = TupleDescGetSlot(tupdesc);
+#endif
 
 	MemoryContextSwitchTo(oldcontext);
 	pfree(relname);
@@ -513,8 +561,10 @@ gist_print(PG_FUNCTION_ARGS) {
 	st->nulls[0] = ISNOTNULL;
 	st->dvalues[1] = BoolGetDatum( (!GistPageIsLeaf(st->item->page) && GistTupleIsInvalid(ituple)) ? false : true );
 	st->nulls[1] = ISNOTNULL;
-	for(i=2; i<funcctx->attinmeta->tupdesc->natts; i++) {
-		if ( !GistPageIsLeaf(st->item->page) && GistTupleIsInvalid(ituple) ) {
+	for(i=2; i<funcctx->attinmeta->tupdesc->natts; i++)
+	{
+		if ( !GistPageIsLeaf(st->item->page) && GistTupleIsInvalid(ituple) )
+		{
 			st->dvalues[i] = (Datum)0;
 			st->nulls[i] = ISNULL;
 		} else {
@@ -524,7 +574,11 @@ gist_print(PG_FUNCTION_ARGS) {
 	}
 
 	htuple = heap_formtuple(funcctx->attinmeta->tupdesc, st->dvalues, st->nulls);
+#if PG_VERSION_NUM >= 120000
+	result = HeapTupleGetDatum(htuple);
+#else
 	result = TupleGetDatum(funcctx->slot, htuple);
+#endif
 	st->item->offset = OffsetNumberNext(st->item->offset);
 	if ( !GistPageIsLeaf(st->item->page) )
 		openGPPage(funcctx, ItemPointerGetBlockNumber(&(ituple->t_tid)) );
@@ -620,7 +674,7 @@ refindPosition(GinStatState *st)
 
 		itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, st->offset));
 #if PG_VERSION_NUM >= 90100
-		datum = gintuple_get_key(&st->ginstate, itup, &category); 
+		datum = gintuple_get_key(&st->ginstate, itup, &category);
 		cmp = ginCompareAttEntries(&st->ginstate,
 									st->attnum + 1, st->curval, st->category,
 									gintuple_get_attrnum(&st->ginstate, itup), datum, category);
@@ -678,7 +732,11 @@ gin_setup_firstcall(FuncCallContext  *funcctx, text *name, int attnum) {
 
 	funcctx->user_fctx = (void*)st;
 
+#if PG_VERSION_NUM >= 120000
+	tupdesc = CreateTemplateTupleDesc(2);
+#else
 	tupdesc = CreateTemplateTupleDesc(2, false);
+#endif
 	TupleDescInitEntry(tupdesc, 1, "value",
 			TS_GET_TYPEVAL(st, st->attnum, atttypid),
 			TS_GET_TYPEVAL(st, st->attnum, atttypmod),
@@ -687,8 +745,11 @@ gin_setup_firstcall(FuncCallContext  *funcctx, text *name, int attnum) {
 
 	memset( st->nulls, ISNOTNULL, 2*sizeof(*st->nulls) );
 
-	funcctx->slot = TupleDescGetSlot(tupdesc);
+#if PG_VERSION_NUM >= 120000
 	funcctx->attinmeta = TupleDescGetAttInMetadata(tupdesc);
+#else
+	funcctx->slot = TupleDescGetSlot(tupdesc);
+#endif
 
 	MemoryContextSwitchTo(oldcontext);
 	pfree(relname);
@@ -839,8 +900,12 @@ gin_stat(PG_FUNCTION_ARGS) {
 	processTuple( funcctx,  st, ituple );
 
 	htuple = heap_formtuple(funcctx->attinmeta->tupdesc, st->dvalues, st->nulls);
+#if PG_VERSION_NUM >= 120000
+	result = HeapTupleGetDatum(htuple);
+#else
 	result = TupleGetDatum(funcctx->slot, htuple);
-
+#endif
+	
 	SRF_RETURN_NEXT(funcctx, result);
 }
 
@@ -1148,7 +1213,11 @@ spgist_print(PG_FUNCTION_ARGS)
 		prst->index = index;
 		initSpGistState(&prst->state, index);
 
+#if PG_VERSION_NUM >= 120000
+		tupdesc = CreateTemplateTupleDesc(3 /* types */ + 1 /* level */ + 1 /* nlabel */ +  2 /* tids */ + 1);
+#else
 		tupdesc = CreateTemplateTupleDesc(3 /* types */ + 1 /* level */ + 1 /* nlabel */ +  2 /* tids */ + 1, false);
+#endif
 		TupleDescInitEntry(tupdesc, 1, "tid", TIDOID, -1, 0);
 		TupleDescInitEntry(tupdesc, 2, "allthesame", BOOLOID, -1, 0);
 		TupleDescInitEntry(tupdesc, 3, "node", INT4OID, -1, 0);
@@ -1161,8 +1230,11 @@ spgist_print(PG_FUNCTION_ARGS)
 		TupleDescInitEntry(tupdesc, 8, "leaf",
 				(prst->state.attType.type == VOIDOID) ? INT4OID : prst->state.attType.type, -1, 0);
 
-		funcctx->slot = TupleDescGetSlot(tupdesc);
+#if PG_VERSION_NUM >= 120000
 		funcctx->attinmeta = TupleDescGetAttInMetadata(tupdesc);
+#else
+		funcctx->slot = TupleDescGetSlot(tupdesc);
+#endif
 
 		funcctx->user_fctx = (void*)prst;
 
@@ -1295,12 +1367,15 @@ next:
 	} while(0);
 
 	htuple = heap_formtuple(funcctx->attinmeta->tupdesc, prst->dvalues, prst->nulls);
+#if PG_VERSION_NUM >= 120000
+	result = HeapTupleGetDatum(htuple);
+#else
 	result = TupleGetDatum(funcctx->slot, htuple);
+#endif
 
 	SRF_RETURN_NEXT(funcctx, result);
 #endif
 }
-
 
 PG_FUNCTION_INFO_V1(gin_statpage);
 Datum gin_statpage(PG_FUNCTION_ARGS);
@@ -1498,3 +1573,628 @@ gin_statpage(PG_FUNCTION_ARGS)
 #endif
 }
 
+#if PG_VERSION_NUM >= 120000
+typedef enum {stat, print} TreeCond;
+typedef struct
+{
+	IdxInfo idxInfo;
+	IdxStat idxStat;
+}BtreeIdxInfo;
+
+/*
+ * Depth-first search for btree
+ * using for statistic data collection
+ * and printing index values by level
+ */
+static void
+btree_deep_search(Relation rel, int level,
+		BlockNumber blk,  BtreeIdxInfo *btreeIdxInfo, TreeCond cond)
+{
+	Page			page;
+	IndexTuple		itup;
+	ItemId			iid;
+	OffsetNumber 	i,
+					maxoff;
+	BlockNumber 	cblk;
+	BTPageOpaque	opaque;
+	Buffer buffer =  _bt_getbuf(rel, blk, BT_READ);
+
+	page = (Page) BufferGetPage(buffer);
+	opaque = (BTPageOpaque) PageGetSpecialPointer(page);
+	maxoff = PageGetMaxOffsetNumber(page);
+
+	switch (cond)
+	{
+		case stat:
+		{
+			btreeIdxInfo->idxStat.numpages++;
+			btreeIdxInfo->idxStat.tuplesize+=BTMaxItemSize(page)-PageGetFreeSpace(page);
+			btreeIdxInfo->idxStat.totalsize+=BLCKSZ;
+			btreeIdxInfo->idxStat.numtuple+=maxoff;
+
+			if (level > btreeIdxInfo->idxStat.level)
+				btreeIdxInfo->idxStat.level = level;
+
+			if (P_ISLEAF(opaque))
+			{
+				btreeIdxInfo->idxStat.numleafpages++;
+				btreeIdxInfo->idxStat.leaftuplesize+=BTMaxItemSize(page)-
+						PageGetFreeSpace(page);
+				btreeIdxInfo->idxStat.numleaftuple+=maxoff;
+			}
+			break;
+		}
+		case print:
+		{
+			while ( (btreeIdxInfo->idxInfo.ptr-((char*)btreeIdxInfo->idxInfo.txt))
+					+ level*4 + 128 >= btreeIdxInfo->idxInfo.len )
+			{
+					int dist=btreeIdxInfo->idxInfo.ptr-((char*)btreeIdxInfo->idxInfo.txt);
+					btreeIdxInfo->idxInfo.len *= 2;
+					btreeIdxInfo->idxInfo.txt=(text*)repalloc(btreeIdxInfo->idxInfo.txt,
+							btreeIdxInfo->idxInfo.len);
+					btreeIdxInfo->idxInfo.ptr = ((char*)btreeIdxInfo->idxInfo.txt)+dist;
+			}
+
+			sprintf(btreeIdxInfo->idxInfo.ptr, "lvl: %d, blk: %d, numTuples: %d\n",
+							level,
+							blk,
+							(int)maxoff);
+
+			btreeIdxInfo->idxInfo.ptr=strchr(btreeIdxInfo->idxInfo.ptr,'\0');
+			break;
+		}
+	}
+
+	if (!P_ISLEAF(opaque) && ((level < btreeIdxInfo->idxInfo.maxlevel)
+			||(btreeIdxInfo->idxInfo.maxlevel<0)))
+	{
+		for (i = P_FIRSTDATAKEY(opaque); i <= maxoff; i = OffsetNumberNext(i))
+		{
+			iid = PageGetItemId(page, i);
+
+			if (!ItemIdIsValid(iid))
+				btreeIdxInfo->idxStat.numinvalidtuple++;
+
+			itup = (IndexTuple) PageGetItem(page, iid);
+			cblk = BTreeInnerTupleGetDownLink(itup);
+
+			btree_deep_search(rel, level + 1, cblk, btreeIdxInfo, cond);
+		}
+	}
+	UnlockReleaseBuffer(buffer);
+}
+
+/*
+ * Print some statistic about btree index
+ * This function shows information for live pages only
+ * and do not shows information about deleting pages
+ *
+ * SELECT btree_stat(INDEXNAME);
+ */
+PG_FUNCTION_INFO_V1(btree_stat);
+Datum btree_stat(PG_FUNCTION_ARGS);
+Datum
+btree_stat(PG_FUNCTION_ARGS)
+{
+	text		*name=PG_GETARG_TEXT_PP(0);
+	RangeVar	*relvar;
+	Relation    index;
+	List       	*relname_list;
+	BtreeIdxInfo btreeIdxInfo;
+
+	Buffer		metabuf;
+	Page		metapg;
+	BTMetaPageData *metad;
+	BlockNumber rootBlk;
+
+	text *out=(text*)palloc(1024);
+	char *ptr=((char*)out)+VARHDRSZ;
+	relname_list = textToQualifiedNameList(name);
+	relvar = makeRangeVarFromNameList(relname_list);
+	index = btree_index_open(relvar);
+
+	memset(&btreeIdxInfo.idxStat, 0, sizeof(IdxStat));
+
+	/* Start dts from root */
+	metabuf = _bt_getbuf(index, BTREE_METAPAGE, BT_READ);
+	metapg = BufferGetPage(metabuf);
+	metad = BTPageGetMeta(metapg);
+	rootBlk = metad->btm_root;
+	UnlockReleaseBuffer(metabuf);
+
+	btree_deep_search(index, 0, rootBlk, &btreeIdxInfo,stat);
+
+	btree_index_close(index);
+	
+	sprintf(ptr,
+		"Number of levels:          %d\n"
+		"Number of pages:           %d\n"
+		"Number of leaf pages:      %d\n"
+		"Number of tuples:          %d\n"
+		"Number of invalid tuples:  %d\n"
+		"Number of leaf tuples:     %d\n"
+		"Total size of tuples:      "INT64_FORMAT" bytes\n"
+		"Total size of leaf tuples: "INT64_FORMAT" bytes\n"
+		"Total size of index:       "INT64_FORMAT" bytes\n",
+		btreeIdxInfo.idxStat.level+1,
+		btreeIdxInfo.idxStat.numpages,
+		btreeIdxInfo.idxStat.numleafpages,
+		btreeIdxInfo.idxStat.numtuple,
+		btreeIdxInfo.idxStat.numinvalidtuple,
+		btreeIdxInfo.idxStat.numleaftuple,
+		btreeIdxInfo.idxStat.tuplesize,
+		btreeIdxInfo.idxStat.leaftuplesize,
+		btreeIdxInfo.idxStat.totalsize);
+
+	ptr=strchr(ptr,'\0');
+
+	SET_VARSIZE(out, ptr-((char*)out));
+	PG_RETURN_POINTER(out);
+}
+
+typedef struct BtPItem
+{
+	Buffer		   buffer;
+	Page		   page;
+	OffsetNumber   offset;
+	int			   level;
+	struct BtPItem *next;
+} BtPItem;
+
+typedef struct
+{
+	List	 *relname_list;
+	RangeVar *relvar;
+	Relation index;
+	Datum	 *dvalues;
+	bool	 *nulls;
+	BtPItem	 *item;
+} BtTypeStorage;
+
+/*
+ * Open page in btree
+ * Returns nitem as a pointer to stack for btree levels stored.
+ * We process tuples from buffer in the top of nitem.
+ * After the complete processing of a top buffer
+ * we return to buffer on one level upper and go to next btree leaf.
+ */
+static BtPItem*
+openBtPPage( FuncCallContext *funcctx, BlockNumber blk )
+{
+	BtPItem		  *nitem;
+	MemoryContext oldcontext;
+
+	Relation index = ( (BtTypeStorage*)(funcctx->user_fctx) )->index;
+	BTPageOpaque opaque;
+	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+	nitem = (BtPItem*)palloc( sizeof(BtPItem) );
+	memset(nitem,0,sizeof(BtPItem));
+
+	nitem->buffer = _bt_getbuf(index, blk, BT_READ);
+	Assert(BufferIsValid(nitem->buffer));
+	nitem->page = (Page) BufferGetPage(nitem->buffer);
+	opaque = (BTPageOpaque)PageGetSpecialPointer(nitem->page);
+	nitem->offset=P_FIRSTDATAKEY(opaque);
+	nitem->next = ( (BtTypeStorage*)(funcctx->user_fctx) )->item;
+	nitem->level = ( nitem->next ) ? nitem->next->level+1 : 1;
+	( (BtTypeStorage*)(funcctx->user_fctx) )->item = nitem;
+
+	MemoryContextSwitchTo(oldcontext);
+
+	return nitem;
+}
+
+static BtPItem*
+closeBtPPage( FuncCallContext *funcctx )
+{
+	BtPItem  *oitem = ( (BtTypeStorage*)(funcctx->user_fctx) )->item;
+
+	( (BtTypeStorage*)(funcctx->user_fctx) )->item = oitem->next;
+
+	UnlockReleaseBuffer(oitem->buffer);
+	pfree( oitem );
+	return ( (BtTypeStorage*)(funcctx->user_fctx) )->item;
+}
+
+static void
+btree_close_call( FuncCallContext  *funcctx )
+{
+	BtTypeStorage *st = (BtTypeStorage*)(funcctx->user_fctx);
+
+	while(st->item && closeBtPPage(funcctx));
+
+	pfree(st->dvalues);
+	pfree(st->nulls);
+
+	btree_index_close(st->index);
+}
+
+/*
+ * Settings for first call of btree_print
+ * Sets the current memory context
+ */
+static void
+btree_setup_firstcall(FuncCallContext  *funcctx, text *name)
+{
+	MemoryContext oldcontext;
+	BtTypeStorage *st;
+	TupleDesc     tupdesc;
+	char		  attname[NAMEDATALEN];
+	int 		  i;
+	BlockNumber   blk;
+	Buffer 		  buffer;
+
+	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+	st=(BtTypeStorage*)palloc( sizeof(BtTypeStorage) );
+	memset(st,0,sizeof(BtTypeStorage));
+	st->relname_list = textToQualifiedNameList(name);
+	st->relvar = makeRangeVarFromNameList(st->relname_list);
+	st->index = btree_index_open(st->relvar);
+	st->item = NULL;
+	funcctx->user_fctx = (void*)st;
+
+	tupdesc = CreateTemplateTupleDesc(st->index->rd_att->natts+2);
+	TupleDescInitEntry(tupdesc, 1, "level", INT4OID, -1, 0);
+	TupleDescInitEntry(tupdesc, 2, "valid", BOOLOID, -1, 0);
+	for (i = 0; i < st->index->rd_att->natts; i++)
+	{
+		sprintf(attname, "z%d", i+2);
+		TupleDescInitEntry(
+			tupdesc,
+			i+3,
+			attname,
+			TS_GET_TYPEVAL(st, i, atttypid),
+			TS_GET_TYPEVAL(st, i, atttypmod),
+			TS_GET_TYPEVAL(st, i, attndims) );
+		BlessTupleDesc(tupdesc);
+	}
+	BlessTupleDesc(tupdesc);
+
+
+	st->dvalues = (Datum *) palloc((tupdesc->natts+2) * sizeof(Datum));
+	st->nulls = palloc((tupdesc->natts+2) * sizeof(*st->nulls));
+
+	funcctx->attinmeta = TupleDescGetAttInMetadata(tupdesc);
+
+	buffer = _bt_gettrueroot(st->index);
+	blk = BufferGetBlockNumber(buffer);
+	UnlockReleaseBuffer(buffer);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	st->item=openBtPPage(funcctx, blk);
+}
+
+/*
+ * Show index elements for btree from root to MAXLEVEL
+ * SELECT btree_tree(INDEXNAME[, MAXLEVEL]);
+ */
+PG_FUNCTION_INFO_V1(btree_tree);
+Datum btree_tree(PG_FUNCTION_ARGS);
+Datum
+btree_tree(PG_FUNCTION_ARGS)
+{
+	text			*name=PG_GETARG_TEXT_PP(0);
+	RangeVar   		*relvar;
+	Relation		index;
+	List       		*relname_list;
+	BtreeIdxInfo btreeIdxInfo;
+	Buffer			metabuf;
+	Page			metapg;
+	BTMetaPageData  *metad;
+	BlockNumber 	rootBlk;
+	
+	/*
+	 *  If we use MAXLEVEL is not used in SELECT btree_tree(INDEXNAME),
+	 *  info.maxlevel set to -1
+	 *  If MAXLEVEL is used in btree_tree call, set info.maxlevel = MAXLEVEL
+	 */
+	btreeIdxInfo.idxInfo.maxlevel = ( PG_NARGS() > 1 ) ? PG_GETARG_INT32(1) : -1;
+	btreeIdxInfo.idxInfo.len=1024;
+	btreeIdxInfo.idxInfo.txt=(text*)palloc( btreeIdxInfo.idxInfo.len );
+	btreeIdxInfo.idxInfo.ptr=((char*)btreeIdxInfo.idxInfo.txt)+VARHDRSZ;
+
+	relname_list = textToQualifiedNameList(name);
+	relvar = makeRangeVarFromNameList(relname_list);
+	index = btree_index_open(relvar);
+
+	/* Start dts from root block */
+	metabuf = _bt_getbuf(index, BTREE_METAPAGE, BT_READ);
+	metapg = BufferGetPage(metabuf);
+	metad = BTPageGetMeta(metapg);
+	rootBlk = metad->btm_root;
+	UnlockReleaseBuffer(metabuf);
+
+	btree_deep_search(index, 0, rootBlk, &btreeIdxInfo, print);
+
+	btree_index_close(index);
+
+	btreeIdxInfo.idxInfo.ptr=strchr(btreeIdxInfo.idxInfo.ptr,'\0');
+
+	SET_VARSIZE(btreeIdxInfo.idxInfo.txt,
+			btreeIdxInfo.idxInfo.ptr-((char*)btreeIdxInfo.idxInfo.txt));
+	PG_RETURN_POINTER(btreeIdxInfo.idxInfo.txt);
+}
+
+/*
+ * Print objects stored in btree tuples
+ * works only if objects in index have textual representation
+ * select * from btree_print(INDEXNAME)
+ * 		as t(level int, valid bool, a box) where level =1;
+ */
+PG_FUNCTION_INFO_V1(btree_print);
+Datum btree_print(PG_FUNCTION_ARGS);
+Datum
+btree_print(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	BtTypeStorage   *st;
+	ItemId          iid;
+	IndexTuple      ituple;
+	HeapTuple       htuple;
+	int 			i;
+	bool 			isnull;
+	BTPageOpaque opaque;
+	Datum result=(Datum)0;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		text    *name=PG_GETARG_TEXT_PP(0);
+		funcctx = SRF_FIRSTCALL_INIT();
+		btree_setup_firstcall(funcctx, name);
+		PG_FREE_IF_COPY(name,0);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	st = (BtTypeStorage*)(funcctx->user_fctx);
+
+	/*
+	 * Looking through the stack of btree pages.
+	 * If the item == NULL, then the search is over.
+	 * For each btree page we look through all the tuples.
+	 * If the offset is larger than the btree page size, the search is over.
+	 */
+
+	if ( !st->item )
+	{
+		btree_close_call(funcctx);
+		SRF_RETURN_DONE(funcctx);
+	}
+
+	/* View all tuples on the page */
+	while( st->item->offset > PageGetMaxOffsetNumber( st->item->page ) )
+	{
+		if ( ! closeBtPPage(funcctx) ) {
+			btree_close_call(funcctx);
+			SRF_RETURN_DONE(funcctx);
+		}
+	}
+
+	iid = PageGetItemId( st->item->page, st->item->offset );
+	ituple = (IndexTuple) PageGetItem(st->item->page, iid);
+
+	st->dvalues[0] = Int32GetDatum( st->item->level );
+	st->nulls[0] = ISNOTNULL;
+	opaque = (BTPageOpaque)PageGetSpecialPointer(st->item->page);
+	st->dvalues[1] = BoolGetDatum(P_ISLEAF(opaque) && !ItemPointerIsValid(&(ituple->t_tid)) ? false : true);
+	st->nulls[1] = ISNOTNULL;
+	for(i=2; i<funcctx->attinmeta->tupdesc->natts; i++)
+	{
+		if (!P_ISLEAF(opaque) && !ItemPointerIsValid(&(ituple->t_tid)))
+		{
+			st->dvalues[i] = (Datum)0;
+			st->nulls[i] = ISNULL;
+		}
+		else
+		{
+			st->dvalues[i] = index_getattr(ituple, i-1, st->index->rd_att, &isnull);
+			st->nulls[i] = ( isnull ) ? ISNULL : ISNOTNULL;
+		}
+	}
+
+	htuple = heap_formtuple(funcctx->attinmeta->tupdesc, st->dvalues, st->nulls);
+	result = TupleGetDatum(funcctx->slot, htuple);
+	result = HeapTupleGetDatum(htuple);
+	st->item->offset = OffsetNumberNext(st->item->offset);
+
+	if (!P_ISLEAF(opaque))
+	{
+		BlockNumber blk = BTreeInnerTupleGetDownLink(ituple);
+		openBtPPage(funcctx, blk );
+	}
+
+	SRF_RETURN_NEXT(funcctx, result);
+}
+
+/*
+ * Print some statistic about brin index
+ * SELECT brin_stat(INDEXNAME);
+ */
+PG_FUNCTION_INFO_V1(brin_stat);
+Datum brin_stat(PG_FUNCTION_ARGS);
+Datum
+brin_stat(PG_FUNCTION_ARGS)
+{
+	text		*name=PG_GETARG_TEXT_PP(0);
+	RangeVar	*relvar;
+	Relation    index;
+	List       	*relname_list;
+
+	BlockNumber startBlk;
+	BlockNumber heapNumBlocks;
+	BlockNumber pagesPerRange;
+	BrinRevmap *revmap;
+	Relation heapRel;
+
+	Buffer buf;
+
+	uint32 numRevmapPages=0;
+	uint32 numTuples = 0;
+	uint32 numEmptyPages = 0;
+	uint32 numRegularPages = 0;
+	uint64 freeSpace = 0;
+	uint64 usedSpace = 0;
+
+	text *out=(text*)palloc(1024);
+	char *ptr=((char*)out)+VARHDRSZ;
+
+	relname_list = textToQualifiedNameList(name);
+	relvar = makeRangeVarFromNameList(relname_list);
+	index = brin_index_open(relvar);
+
+	revmap = brinRevmapInitialize(index, &pagesPerRange, NULL);
+	heapRel = table_open(IndexGetRelation(RelationGetRelid(index), false),
+								 AccessShareLock);
+	/* Determine range of pages to process */
+	heapNumBlocks = RelationGetNumberOfBlocks(heapRel); // total pages
+
+	table_close(heapRel, AccessShareLock);
+
+	/* The index is up to date, no update required */
+	startBlk = 0;
+
+	buf = InvalidBuffer;
+	/* Scan the revmap */
+	for (; startBlk < heapNumBlocks; startBlk += pagesPerRange)
+	{
+		BrinTuple  *tup;
+		OffsetNumber off;
+		Page	page;
+
+		numRevmapPages++;
+		/* Get on-disk tuple */
+		tup = brinGetTupleForHeapBlock(revmap, startBlk, &buf, &off, NULL,
+				   BUFFER_LOCK_SHARE, NULL);
+
+		if (tup)
+		{
+			BrinDesc* bdesc;
+
+			numTuples++;
+			page = BufferGetPage(buf);
+
+			if (BRIN_IS_REGULAR_PAGE(page))
+				numRegularPages++;
+			freeSpace += PageGetFreeSpace(page);
+			bdesc = brin_build_desc(index);
+			usedSpace += MAXALIGN(sizeof(BrinMemTuple) +
+					sizeof(BrinValues) * bdesc->bd_tupdesc->natts);
+		}
+		else
+			/* If the revmap page points to void */
+			numEmptyPages++;
+
+		UnlockReleaseBuffer(buf);
+	}
+
+	brinRevmapTerminate(revmap);
+
+	sprintf(ptr,
+		"Number of revmap pages: 	%d\n"
+		"Number of empty revmap pages:	%d\n"
+		"Number of regular pages:	%d\n"
+		"Number of tuples: 		%d\n"
+		"Used space 		"INT64_FORMAT" bytes\n"
+		"Free space 		"INT64_FORMAT" bytes\n",
+		numRevmapPages,
+		numEmptyPages,
+		numRegularPages,
+		numTuples,
+		usedSpace,
+		freeSpace
+		);
+
+	ptr=strchr(ptr,'\0');
+
+	brin_index_close(index);
+	SET_VARSIZE(out, ptr-((char*)out));
+	PG_RETURN_POINTER(out);
+}
+
+/*
+ * Print numbers of heap blocks from revmap
+ * and numbers of end blocks from ranges
+ */
+PG_FUNCTION_INFO_V1(brin_print);
+Datum brin_print(PG_FUNCTION_ARGS);
+Datum
+brin_print(PG_FUNCTION_ARGS)
+{
+	text	*name=PG_GETARG_TEXT_PP(0);
+	RangeVar   		*relvar;
+	Relation		index;
+	List       		*relname_list;
+
+	BlockNumber heapBlk;
+	BlockNumber numBlocks;
+	BlockNumber pagesPerRange;
+	BrinRevmap *revmap;
+	Relation heapRel;
+	int len = 1024;
+
+	text *out=(text*)palloc(len);
+	char *ptr=((char*)out)+VARHDRSZ;
+
+	relname_list = textToQualifiedNameList(name);
+	relvar = makeRangeVarFromNameList(relname_list);
+	index = brin_index_open(relvar);
+
+	heapRel = table_open(IndexGetRelation(RelationGetRelid(index), false),
+									 AccessShareLock);
+
+	/* Determine range of pages to process */
+	numBlocks = RelationGetNumberOfBlocks(heapRel);
+	table_close(heapRel, AccessShareLock);
+	revmap = brinRevmapInitialize(index, &pagesPerRange, NULL);
+
+	for(heapBlk = 0; heapBlk < numBlocks; heapBlk += pagesPerRange)
+	{
+		BlockNumber rangeEndBlk;
+		BlockNumber rangeBlk;
+
+		while ( (ptr-((char*)out)) + heapBlk*4 + 128 >= len )
+		{
+			int dist=ptr-((char*)out);
+			len *= 2;
+			out=(text*)repalloc(out, len);
+			ptr = ((char*)out)+dist;
+			Assert(0);
+		}
+
+		/* Compute rage end */
+		if (heapBlk + pagesPerRange > numBlocks)
+			rangeEndBlk = Min(RelationGetNumberOfBlocks(heapRel) - heapBlk,
+								  pagesPerRange);
+		else
+			/* Easy case: range is known to be complete */
+			rangeEndBlk = pagesPerRange;
+		sprintf(ptr, "Start block: %d; end block: %d \n", heapBlk, rangeEndBlk);
+
+		for (rangeBlk = 0; rangeBlk < rangeEndBlk; rangeBlk++)
+		{
+				Page page;
+				/* Read buffer for open table */
+				Buffer buf = ReadBuffer(heapRel, rangeBlk);
+				page = BufferGetPage(buf);
+				sprintf(ptr, "Start block: %d; end block: %d; offset: %d, free: %d\n",
+						heapBlk,
+						rangeEndBlk,
+						(int) PageGetMaxOffsetNumber(page),
+						(int) PageGetFreeSpace(page));
+
+				ReleaseBuffer(buf);
+		}
+
+		ptr=strchr(ptr,'\0');
+	}
+
+	brinRevmapTerminate(revmap);
+
+	brin_index_close(index);
+	ptr=strchr(ptr,'\0');
+	SET_VARSIZE(out, ptr-((char*)out));
+	PG_RETURN_POINTER(out);
+}
+#endif

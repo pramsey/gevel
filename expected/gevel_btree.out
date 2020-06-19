@@ -1,0 +1,185 @@
+SET client_min_messages = warning;
+\set ECHO none
+RESET client_min_messages;
+CREATE TABLE test__val( a int[] );
+\copy test__val from 'data/test__int.data'
+INSERT INTO test__val ( SELECT ARRAY[t] || '{1000}'::_int4 FROM generate_series (1,300) as t );
+INSERT INTO test__val ( SELECT ARRAY[t] || '{1001}'::_int4 FROM generate_series (1,300) as t, generate_series(1,12) );
+VACUUM ANALYZE test__val;
+--Btree
+CREATE INDEX btree_idx ON test__val USING btree ( a );
+SELECT btree_stat('btree_idx');
+               btree_stat                
+-----------------------------------------
+ Number of levels:          2           +
+ Number of pages:           75          +
+ Number of leaf pages:      74          +
+ Number of tuples:          11047       +
+ Number of invalid tuples:  0           +
+ Number of leaf tuples:     10973       +
+ Total size of tuples:      138624 bytes+
+ Total size of leaf tuples: 140204 bytes+
+ Total size of index:       614400 bytes+
+ 
+(1 row)
+
+SELECT btree_tree('btree_idx');
+           btree_tree            
+---------------------------------
+ lvl: 0, blk: 3, numTuples: 74  +
+ lvl: 1, blk: 1, numTuples: 139 +
+ lvl: 1, blk: 2, numTuples: 139 +
+ lvl: 1, blk: 4, numTuples: 139 +
+ lvl: 1, blk: 5, numTuples: 136 +
+ lvl: 1, blk: 6, numTuples: 141 +
+ lvl: 1, blk: 7, numTuples: 139 +
+ lvl: 1, blk: 8, numTuples: 140 +
+ lvl: 1, blk: 9, numTuples: 136 +
+ lvl: 1, blk: 10, numTuples: 140+
+ lvl: 1, blk: 11, numTuples: 138+
+ lvl: 1, blk: 12, numTuples: 143+
+ lvl: 1, blk: 13, numTuples: 137+
+ lvl: 1, blk: 14, numTuples: 138+
+ lvl: 1, blk: 15, numTuples: 140+
+ lvl: 1, blk: 16, numTuples: 141+
+ lvl: 1, blk: 17, numTuples: 138+
+ lvl: 1, blk: 18, numTuples: 141+
+ lvl: 1, blk: 19, numTuples: 141+
+ lvl: 1, blk: 20, numTuples: 138+
+ lvl: 1, blk: 21, numTuples: 141+
+ lvl: 1, blk: 22, numTuples: 141+
+ lvl: 1, blk: 23, numTuples: 141+
+ lvl: 1, blk: 24, numTuples: 138+
+ lvl: 1, blk: 25, numTuples: 140+
+ lvl: 1, blk: 26, numTuples: 142+
+ lvl: 1, blk: 27, numTuples: 141+
+ lvl: 1, blk: 28, numTuples: 142+
+ lvl: 1, blk: 29, numTuples: 140+
+ lvl: 1, blk: 30, numTuples: 141+
+ lvl: 1, blk: 31, numTuples: 140+
+ lvl: 1, blk: 32, numTuples: 142+
+ lvl: 1, blk: 33, numTuples: 143+
+ lvl: 1, blk: 34, numTuples: 141+
+ lvl: 1, blk: 35, numTuples: 140+
+ lvl: 1, blk: 36, numTuples: 142+
+ lvl: 1, blk: 37, numTuples: 142+
+ lvl: 1, blk: 38, numTuples: 141+
+ lvl: 1, blk: 39, numTuples: 143+
+ lvl: 1, blk: 40, numTuples: 142+
+ lvl: 1, blk: 41, numTuples: 143+
+ lvl: 1, blk: 42, numTuples: 143+
+ lvl: 1, blk: 43, numTuples: 142+
+ lvl: 1, blk: 44, numTuples: 143+
+ lvl: 1, blk: 45, numTuples: 142+
+ lvl: 1, blk: 46, numTuples: 142+
+ lvl: 1, blk: 47, numTuples: 141+
+ lvl: 1, blk: 48, numTuples: 144+
+ lvl: 1, blk: 49, numTuples: 141+
+ lvl: 1, blk: 50, numTuples: 142+
+ lvl: 1, blk: 51, numTuples: 143+
+ lvl: 1, blk: 52, numTuples: 142+
+ lvl: 1, blk: 53, numTuples: 143+
+ lvl: 1, blk: 54, numTuples: 141+
+ lvl: 1, blk: 55, numTuples: 142+
+ lvl: 1, blk: 56, numTuples: 141+
+ lvl: 1, blk: 57, numTuples: 156+
+ lvl: 1, blk: 58, numTuples: 159+
+ lvl: 1, blk: 59, numTuples: 160+
+ lvl: 1, blk: 60, numTuples: 161+
+ lvl: 1, blk: 61, numTuples: 163+
+ lvl: 1, blk: 62, numTuples: 163+
+ lvl: 1, blk: 63, numTuples: 164+
+ lvl: 1, blk: 64, numTuples: 165+
+ lvl: 1, blk: 65, numTuples: 165+
+ lvl: 1, blk: 66, numTuples: 166+
+ lvl: 1, blk: 67, numTuples: 166+
+ lvl: 1, blk: 68, numTuples: 167+
+ lvl: 1, blk: 69, numTuples: 167+
+ lvl: 1, blk: 70, numTuples: 167+
+ lvl: 1, blk: 71, numTuples: 167+
+ lvl: 1, blk: 72, numTuples: 167+
+ lvl: 1, blk: 73, numTuples: 167+
+ lvl: 1, blk: 74, numTuples: 167+
+ lvl: 1, blk: 75, numTuples: 274+
+ 
+(1 row)
+
+SELECT * FROM btree_print('btree_idx') as t(level int, valid bool, a int[]) where level=1;
+ level | valid |            a            
+-------+-------+-------------------------
+     1 | t     | 
+     1 | t     | {1,1001}
+     1 | t     | {3,52,31,62,98}
+     1 | t     | {5,3,25}
+     1 | t     | {6,70,15}
+     1 | t     | {8,1}
+     1 | t     | {9,96}
+     1 | t     | {11,37,55}
+     1 | t     | {12,96,72,23,83,56}
+     1 | t     | {14,30,132,144,174}
+     1 | t     | {15,87}
+     1 | t     | {17,36,97,77}
+     1 | t     | {18,171,283}
+     1 | t     | {20,66,81}
+     1 | t     | {22,31,38,77,21}
+     1 | t     | {24,2,96}
+     1 | t     | {25,218,241,241}
+     1 | t     | {27,87,61,54,41}
+     1 | t     | {29,53,109,128,129,195}
+     1 | t     | {30,183,215}
+     1 | t     | {32,41,4}
+     1 | t     | {34,44,47,81,124,135}
+     1 | t     | {35,1001}
+     1 | t     | {37,81,85}
+     1 | t     | {39,74,47,71,63,80}
+     1 | t     | {41,60,71}
+     1 | t     | {43,41,12,44,75,91}
+     1 | t     | {45,26,61,15}
+     1 | t     | {47,22,65}
+     1 | t     | {49,16,63,56}
+     1 | t     | {50,98,71,10}
+     1 | t     | {52,53,81}
+     1 | t     | {54,46,31,87,13,8}
+     1 | t     | {55,1001}
+     1 | t     | {57,99,66,93}
+     1 | t     | {59,103,180,196}
+     1 | t     | {61,63,59,62}
+     1 | t     | {63,66}
+     1 | t     | {65,30,39,82,89,34}
+     1 | t     | {67,25}
+     1 | t     | {69,8,75}
+     1 | t     | {71,23,89}
+     1 | t     | {73,24,81,58,22}
+     1 | t     | {75,54,93,39,18}
+     1 | t     | {77,31,77}
+     1 | t     | {79,59}
+     1 | t     | {81,61,86,96,47,67}
+     1 | t     | {83,79,46,37,99}
+     1 | t     | {85,72}
+     1 | t     | {87,93,19}
+     1 | t     | {89,161}
+     1 | t     | {91,1001}
+     1 | t     | {94,8}
+     1 | t     | {96,33,86,28,19}
+     1 | t     | {98,53,58,58,61}
+     1 | t     | {100,80,23,24,17}
+     1 | t     | {107,1001}
+     1 | t     | {115,1001}
+     1 | t     | {124,1001}
+     1 | t     | {133,1001}
+     1 | t     | {143,1001}
+     1 | t     | {154,1000}
+     1 | t     | {164,1001}
+     1 | t     | {175,1001}
+     1 | t     | {186,1001}
+     1 | t     | {198,1001}
+     1 | t     | {210,1001}
+     1 | t     | {222,1001}
+     1 | t     | {235,1001}
+     1 | t     | {248,266}
+     1 | t     | {260,1001}
+     1 | t     | {273,1001}
+     1 | t     | {285,1001}
+     1 | t     | {298,1001}
+(74 rows)
+

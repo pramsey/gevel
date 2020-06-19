@@ -1,0 +1,26 @@
+SET client_min_messages = warning;
+\set ECHO none
+RESET client_min_messages;
+CREATE TABLE gevelb ( t box );
+\copy gevelb from 'data/rect.data'
+--BRIN
+CREATE INDEX brin_idx ON gevelb USING brin ( t );
+SELECT brin_stat('brin_idx');
+             brin_stat              
+------------------------------------
+ Number of revmap pages:         1 +
+ Number of empty revmap pages:   0 +
+ Number of regular pages:        1 +
+ Number of tuples:               1 +
+ Used space              56 bytes  +
+ Free space              8104 bytes+
+ 
+(1 row)
+
+SELECT brin_print('brin_idx');
+                       brin_print                       
+--------------------------------------------------------
+ Start block: 0; end block: 24; offset: 113, free: 1704+
+ 
+(1 row)
+

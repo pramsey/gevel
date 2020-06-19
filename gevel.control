@@ -1,0 +1,5 @@
+# gevel extension
+comment = 'gevel'
+default_version = '1.1'
+module_pathname = '$libdir/gevel'
+relocatable = false
