@@ -9,14 +9,9 @@ EXTRA_CLEAN =  pg_version.txt expected/gevel.out
 
 all installcheck: pg_version.txt
 
-ifdef USE_PGXS
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
-else
-subdir = contrib/gevel
-include $(top_srcdir)/contrib/contrib-global.mk
-endif
 
 VERSION = $(MAJORVERSION)
 ifeq ($(VERSION),12)

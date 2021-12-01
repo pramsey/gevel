@@ -1,6 +1,8 @@
 .gitignore
 *.swp
 *.o
+*.so
+*.dylib
 *.a
 *.d
 *.orig
@@ -9,3 +11,5 @@ temp
 diffs
 etc
 results
+pg_version.txt
+expected/gevel.out

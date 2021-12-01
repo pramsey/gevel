@@ -371,15 +371,15 @@ gist_stat(PG_FUNCTION_ARGS) {
 	pfree(relname);
 
 	sprintf(ptr,
-		"Number of levels:		  %d\n"
-		"Number of pages:		   %d\n"
-		"Number of leaf pages:	  %d\n"
-		"Number of tuples:		  %d\n"
+		"Number of levels:          %d\n"
+		"Number of pages:           %d\n"
+		"Number of leaf pages:      %d\n"
+		"Number of tuples:          %d\n"
 		"Number of invalid tuples:  %d\n"
-		"Number of leaf tuples:	 %d\n"
-		"Total size of tuples:	  "INT64_FORMAT" bytes\n"
+		"Number of leaf tuples:     %d\n"
+		"Total size of tuples:      "INT64_FORMAT" bytes\n"
 		"Total size of leaf tuples: "INT64_FORMAT" bytes\n"
-		"Total size of index:	   "INT64_FORMAT" bytes\n",
+		"Total size of index:       "INT64_FORMAT" bytes\n",
 		info.level+1,
 		info.numpages,
 		info.numleafpages,
@@ -1101,23 +1101,23 @@ spgist_stat(PG_FUNCTION_ARGS)
 	totalPages--;			   /* discount metapage */
 
 	snprintf(res, sizeof(res),
-			 "totalPages:		%u\n"
-			 "deletedPages:	  %u\n"
-			 "innerPages:		%u\n"
-			 "leafPages:		 %u\n"
-			 "emptyPages:		%u\n"
-			 "usedSpace:		 %.2f kbytes\n"
-			 "usedInnerSpace:	%.2f kbytes\n"
-			 "usedLeafSpace:	 %.2f kbytes\n"
-			 "freeSpace:		 %.2f kbytes\n"
-			 "fillRatio:		 %.2f%%\n"
-			 "leafTuples:		" INT64_FORMAT "\n"
-			 "innerTuples:	   " INT64_FORMAT "\n"
+			 "totalPages:        %u\n"
+			 "deletedPages:      %u\n"
+			 "innerPages:        %u\n"
+			 "leafPages:         %u\n"
+			 "emptyPages:        %u\n"
+			 "usedSpace:         %.2f kbytes\n"
+			 "usedInnerSpace:    %.2f kbytes\n"
+			 "usedLeafSpace:     %.2f kbytes\n"
+			 "freeSpace:         %.2f kbytes\n"
+			 "fillRatio:         %.2f%%\n"
+			 "leafTuples:        " INT64_FORMAT "\n"
+			 "innerTuples:       " INT64_FORMAT "\n"
 			 "innerAllTheSame:   " INT64_FORMAT "\n"
 			 "leafPlaceholders:  " INT64_FORMAT "\n"
 			 "innerPlaceholders: " INT64_FORMAT "\n"
-			 "leafRedirects:	 " INT64_FORMAT "\n"
-			 "innerRedirects:	" INT64_FORMAT,
+			 "leafRedirects:     " INT64_FORMAT "\n"
+			 "innerRedirects:    " INT64_FORMAT,
 			 totalPages, deletedPages, innerPages, leafPages, emptyPages,
 			 usedSpace / 1024.0,
 			 usedInnerSpace / 1024.0,
@@ -1657,7 +1657,11 @@ btree_deep_search(Relation rel, int level,
 				btreeIdxInfo->idxStat.numinvalidtuple++;
 
 			itup = (IndexTuple) PageGetItem(page, iid);
+#if PG_VERSION_NUM >= 140000
+			cblk = BTreeTupleGetDownLink(itup);
+#else
 			cblk = BTreeInnerTupleGetDownLink(itup);
+#endif
 
 			btree_deep_search(rel, level + 1, cblk, btreeIdxInfo, cond);
 		}
@@ -1708,15 +1712,15 @@ btree_stat(PG_FUNCTION_ARGS)
 	btree_index_close(index);
 
 	sprintf(ptr,
-		"Number of levels:		  %d\n"
-		"Number of pages:		   %d\n"
-		"Number of leaf pages:	  %d\n"
-		"Number of tuples:		  %d\n"
+		"Number of levels:          %d\n"
+		"Number of pages:           %d\n"
+		"Number of leaf pages:      %d\n"
+		"Number of tuples:          %d\n"
 		"Number of invalid tuples:  %d\n"
-		"Number of leaf tuples:	 %d\n"
-		"Total size of tuples:	  "INT64_FORMAT" bytes\n"
+		"Number of leaf tuples:     %d\n"
+		"Total size of tuples:      "INT64_FORMAT" bytes\n"
 		"Total size of leaf tuples: "INT64_FORMAT" bytes\n"
-		"Total size of index:	   "INT64_FORMAT" bytes\n",
+		"Total size of index:       "INT64_FORMAT" bytes\n",
 		btreeIdxInfo.idxStat.level+1,
 		btreeIdxInfo.idxStat.numpages,
 		btreeIdxInfo.idxStat.numleafpages,
@@ -2001,7 +2005,11 @@ btree_print(PG_FUNCTION_ARGS)
 
 	if (!P_ISLEAF(opaque))
 	{
+#if PG_VERSION_NUM >= 140000
+		BlockNumber blk = BTreeTupleGetDownLink(ituple);
+#else
 		BlockNumber blk = BTreeInnerTupleGetDownLink(ituple);
+#endif
 		openBtPPage(funcctx, blk );
 	}
 
