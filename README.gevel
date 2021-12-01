@@ -1,6 +1,7 @@
 Gevel contrib module provides several functions useful for analyzing GiST and GIN index.
 
-[Online version] of this document (http://www.sai.msu.su/~megera/oddmuse/index.cgi/Gevel)
+* Online version of this document: http://www.sai.msu.su/~megera/oddmuse/index.cgi/Gevel
+* Canonical git repository: git://sigaev.ru/gevel
 
 Caution: This module was designed for advanced users of GIN, GiST and SP-GiST indices !
 
