@@ -48,6 +48,9 @@
 #include <access/brin_tuple.h>
 #endif
 
+/* Get downlink block number */
+#define BTreeInnerTupleGetDownLink(itup) \
+	ItemPointerGetBlockNumberNoCheck(&((itup)->t_tid))
 
 #define PAGESIZE	(BLCKSZ - MAXALIGN(sizeof(PageHeaderData) + sizeof(ItemIdData)))
 
@@ -905,7 +908,7 @@ gin_stat(PG_FUNCTION_ARGS) {
 #else
 	result = TupleGetDatum(funcctx->slot, htuple);
 #endif
-	
+
 	SRF_RETURN_NEXT(funcctx, result);
 }
 
